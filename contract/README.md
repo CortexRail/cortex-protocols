@@ -1,21 +1,74 @@
-# Soroban Project
+# Cortex Protocol — Soroban Smart Contracts
 
-## Project Structure
+Stellar Soroban smart contracts powering the Intelligence Rail marketplace.
 
-This repository uses the recommended structure for a Soroban project:
-```text
-.
-├── contracts
-│   └── hello_world
-│       ├── src
-│       │   ├── lib.rs
-│       │   └── test.rs
-│       └── Cargo.toml
-├── Cargo.toml
-└── README.md
+## Contracts
+
+### `marketplace`
+Core marketplace contract for listing, discovering, and purchasing intelligence assets.
+
+- `initialize(owner)` — Set up the marketplace admin
+- `list_asset(...)` — Register an intelligence asset for sale
+- `delist_asset(owner, asset_id)` — Remove an asset from the marketplace
+- `update_price(owner, asset_id, price)` — Update asset pricing
+- `purchase_license(buyer, asset_id, token)` — Buy a license (triggers XLM/token payment)
+- `get_asset(id)` / `has_license(buyer, id)` / `asset_count()` — Query helpers
+
+### `micropayments`
+Payment streaming for usage-based intelligence asset billing.
+
+- `open_stream(sender, recipient, token, deposit, rate, duration)` — Start a stream
+- `withdraw(recipient, stream_id)` — Claim accrued payments
+- `cancel_stream(sender, stream_id)` — Cancel and settle
+- `pause_stream` / `resume_stream` — Flow control
+- `claimable_amount(stream_id)` — Real-time balance query
+
+### `agent_registry`
+On-chain agent identity, capability declarations, and reputation.
+
+- `register_agent(owner, name, description, capabilities)` — Create an agent identity
+- `update_capabilities(owner, agent_id, capabilities)` — Update capability set
+- `vote_reputation(voter, agent_id, score)` — Submit a reputation rating
+- `record_transaction(caller, agent_id)` — Log completed transactions
+- `deactivate_agent(owner, agent_id)` — Retire an agent
+
+## Asset Types
+
+| Type | Description |
+|------|-------------|
+| `Prompt` | Reusable prompt templates |
+| `Workflow` | Multi-step agent workflows |
+| `ReasoningChain` | Structured reasoning templates |
+| `Dataset` | Curated training / context data |
+| `Evaluator` | Quality/scoring components |
+| `MemorySystem` | Persistent agent memory modules |
+| `ModelInstruction` | System-level model instructions |
+| `Tool` | Callable agent tools |
+
+## License Models
+
+| License | Description |
+|---------|-------------|
+| `Perpetual` | One-time purchase |
+| `UsageBased` | Pay-per-call (100-call bundles) |
+| `Subscription` | Time-bound access |
+| `OpenSource` | Attribution required |
+
+## Build
+
+```bash
+# Build all contracts
+cargo build --target wasm32-unknown-unknown --release
+
+# Run tests
+cargo test
 ```
 
-- New Soroban contracts can be put in `contracts`, each in their own directory. There is already a `hello_world` contract in there to get you started.
-- If you initialized this project with any other example contracts via `--with-example`, those contracts will be in the `contracts` directory as well.
-- Contracts should have their own `Cargo.toml` files that rely on the top-level `Cargo.toml` workspace for their dependencies.
-- Frontend libraries can be added to the top-level directory as well. If you initialized this project with a frontend template via `--frontend-template` you will have those files already included.
+## Deploy (Testnet)
+
+```bash
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/marketplace.wasm \
+  --network testnet \
+  --source <your-key>
+```
