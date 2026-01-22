@@ -51,3 +51,6 @@ module.exports = {
   horizonServer,
   CONTRACT_IDS,
 };
+
+// Exported for use in middleware and tests
+module.exports.NETWORK_CONFIG = { NETWORK, networkPassphrase, rpcUrl, horizonUrl };
