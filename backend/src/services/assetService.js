@@ -213,3 +213,12 @@ module.exports = {
   ASSET_TYPES,
   LICENSE_TYPES,
 };
+
+/**
+ * Normalize a tag string to lowercase kebab-case.
+ */
+function normalizeTag(tag) {
+  return tag.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
+
+module.exports.normalizeTag = normalizeTag;
