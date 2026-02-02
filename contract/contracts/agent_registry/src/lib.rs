@@ -189,7 +189,7 @@ impl AgentRegistryContract {
         env.storage().persistent().set(&AGENTS, &agents);
     }
 
-    /// Deactivate an agent.
+    /// Deactivate an agent. Deactivated agents remain on-chain but are excluded from discovery.
     pub fn deactivate_agent(env: Env, owner: Address, agent_id: u64) {
         owner.require_auth();
 
