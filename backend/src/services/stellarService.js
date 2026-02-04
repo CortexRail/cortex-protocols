@@ -57,7 +57,7 @@ async function invokeContract(contractId, method, args, signerKeypair) {
 
   // Poll for confirmation
   let getResult = await rpcServer.getTransaction(sendResult.hash);
-  const maxRetries = 10;
+  const maxRetries = 12; // ~24s with 2s delay
   let retries = 0;
 
   while (
