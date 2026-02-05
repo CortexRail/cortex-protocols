@@ -94,3 +94,5 @@ router.get("/types/list", (_req, res) => {
 });
 
 module.exports = router;
+
+// Note: search queries are logged at debug level for analytics
