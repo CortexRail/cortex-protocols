@@ -126,3 +126,5 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 module.exports = { registerAgent, listAgents, getAgent, CAPABILITIES };
+
+// Note: reputation is stored in basis points (0-10000); divide by 100 for percentage display
