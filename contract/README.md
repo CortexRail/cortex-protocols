@@ -72,3 +72,7 @@ stellar contract deploy \
   --network testnet \
   --source <your-key>
 ```
+
+## Testnet Contract Addresses
+
+Deployed contract addresses are maintained in `.env` / `backend/.env`. Check the network config endpoint at `GET /api/v1/stellar/network` for live addresses.
