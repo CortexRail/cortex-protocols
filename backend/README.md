@@ -73,3 +73,9 @@ See `.env.example` for the full list. Key vars:
 ```bash
 npm test
 ```
+
+## Current Limitations
+
+- In-memory storage is used for asset/agent indexing. A persistent database (PostgreSQL, SQLite) should be wired in for production.
+- The event listener uses simple polling. A WebSocket subscription should replace this for production deployments.
+- Transaction signing uses a server-side keypair. Wallet-signed transactions (Freighter/Albedo) should be preferred for user-facing operations.
