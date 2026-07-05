@@ -79,3 +79,5 @@ npm test
 - In-memory storage is used for asset/agent indexing. A persistent database (PostgreSQL, SQLite) should be wired in for production.
 - The event listener uses simple polling. A WebSocket subscription should replace this for production deployments.
 - Transaction signing uses a server-side keypair. Wallet-signed transactions (Freighter/Albedo) should be preferred for user-facing operations.
+
+> API version: v1 — Last updated July 2026
