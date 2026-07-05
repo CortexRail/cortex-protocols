@@ -1,66 +1,73 @@
-import Image from "next/image";
-import styles from "./page.module.css";
-
 export default function Home() {
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-6">
+      <div className="max-w-3xl w-full text-center space-y-8">
+        {/* Header */}
+        <div className="space-y-3">
+          <p className="text-sm font-mono text-purple-400 tracking-widest uppercase">
+            Cortex Protocol
+          </p>
+          <h1 className="text-5xl font-bold tracking-tight">
+            Intelligence Rail
+          </h1>
+          <p className="text-lg text-zinc-400 max-w-xl mx-auto">
+            Open infrastructure for autonomous agents to discover, exchange, and
+            evolve intelligence assets through programmable micropayments.
           </p>
         </div>
-        <div className={styles.ctas}>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-4 py-6 border-y border-zinc-800">
+          {[
+            { label: "Asset Types", value: "8" },
+            { label: "License Models", value: "4" },
+            { label: "Built on", value: "Stellar" },
+          ].map(({ label, value }) => (
+            <div key={label} className="space-y-1">
+              <p className="text-2xl font-bold">{value}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wider">{label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Feature list */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+          {[
+            "Prompts & Reasoning Chains",
+            "Agent Workflows",
+            "Soroban Micropayments",
+            "Usage-Based Licensing",
+            "Agent Identity & Reputation",
+            "AI-to-AI Commerce",
+          ].map((feature) => (
+            <div
+              key={feature}
+              className="flex items-center gap-2 text-sm text-zinc-300"
+            >
+              <span className="text-purple-400">▸</span>
+              {feature}
+            </div>
+          ))}
+        </div>
+
+        {/* CTA */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
           <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
+            href="https://github.com/CortexRail/cortex-protocols"
             target="_blank"
             rel="noopener noreferrer"
+            className="px-6 py-3 bg-white text-black font-semibold rounded-lg hover:bg-zinc-200 transition-colors"
           >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
+            View on GitHub
           </a>
           <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/marketplace"
+            className="px-6 py-3 border border-zinc-700 text-white font-semibold rounded-lg hover:border-zinc-500 transition-colors"
           >
-            Documentation
+            Explore Marketplace
           </a>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
