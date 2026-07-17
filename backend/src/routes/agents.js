@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const { body, query, param } = require("express-validator");
 const validate = require("../middleware/validate");
+const asyncHandler = require("../middleware/asyncHandler");
 const {
   listAgents,
   getAgent,
@@ -24,17 +25,18 @@ router.get(
     query("limit").optional().isInt({ min: 1, max: 100 }),
   ],
   validate,
-  (req, res) => {
+  asyncHandler(async (req, res) => {
     const { capability, minReputation, search, page, limit } = req.query;
-    const result = listAgents({
+    const result = await listAgents({
       capability,
-      minReputation: minReputation !== undefined ? Number(minReputation) : undefined,
+      minReputation:
+        minReputation !== undefined ? Number(minReputation) : undefined,
       search,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
     });
     res.json(result);
-  }
+  })
 );
 
 /**
@@ -44,13 +46,13 @@ router.get(
   "/:id",
   [param("id").isInt({ min: 1 })],
   validate,
-  (req, res) => {
-    const agent = getAgent(req.params.id);
+  asyncHandler(async (req, res) => {
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return res.status(404).json({ error: "Agent not found" });
     }
     res.json(agent);
-  }
+  })
 );
 
 /**
@@ -68,10 +70,10 @@ router.post(
     body("capabilities.*").isIn(CAPABILITIES),
   ],
   validate,
-  (req, res) => {
-    const agent = registerAgent(req.body);
+  asyncHandler(async (req, res) => {
+    const agent = await registerAgent(req.body);
     res.status(201).json(agent);
-  }
+  })
 );
 
 /**
