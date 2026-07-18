@@ -637,6 +637,21 @@ npm run deploy:full  # uses ts-node/esm loader automatically
 
 ---
 
+## Contract Fuzzing
+
+Contract fuzzing requires a nightly Rust toolchain, a C++ compiler, and
+`cargo-fuzz`:
+
+```bash
+cargo +nightly install cargo-fuzz
+cd fuzz
+cargo +nightly fuzz run list_asset -- -max_total_time=1800
+```
+
+The available targets are `list_asset`, `purchase_license`, and `open_stream`.
+See [`fuzz/README.md`](fuzz/README.md) for all commands, corpus guidance,
+methodology, findings, and completed-run results.
+
 ## Security Notes
 
 - **Never commit** your `STELLAR_SECRET_KEY` to version control.
