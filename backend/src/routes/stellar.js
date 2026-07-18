@@ -2,7 +2,7 @@ const { Router } = require("express");
 const { query, param } = require("express-validator");
 const rateLimit = require("express-rate-limit");
 const validate = require("../middleware/validate");
-const { horizonServer, rpcServer, NETWORK, CONTRACT_IDS } = require("../config/stellar");
+const { horizonServer, NETWORK, CONTRACT_IDS } = require("../config/stellar");
 const { getAccountTransactions } = require("../services/transactionService");
 const { isValidStellarAddress } = require("../utils/stellar");
 

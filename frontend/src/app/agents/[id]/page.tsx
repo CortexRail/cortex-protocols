@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -18,13 +18,25 @@ interface Agent {
 }
 
 interface ReputationHistoryResponse {
-  data: Array<{ score: number; voter: string; timestamp: number }>;
+  data: ReputationHistoryEntry[];
   meta: { agentId: string; count: number };
 }
 
+interface ReputationHistoryEntry {
+  score: number;
+  voter: string;
+  timestamp: number;
+}
+
 interface ActivityFeedResponse {
-  data: Array<{ type: string; data: any; timestamp: number }>;
+  data: ActivityEntry[];
   meta: { total: number; page: number; limit: number; pages: number };
+}
+
+interface ActivityEntry {
+  type: string;
+  data: unknown;
+  timestamp: number;
 }
 
 export default function AgentProfilePage() {
@@ -32,58 +44,71 @@ export default function AgentProfilePage() {
   const agentId = params.id as string;
 
   const [agent, setAgent] = useState<Agent | null>(null);
-  const [reputationHistory, setReputationHistory] = useState<any[]>([]);
-  const [activity, setActivity] = useState<any[]>([]);
+  const [reputationHistory, setReputationHistory] = useState<ReputationHistoryEntry[]>([]);
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [activeTab, setActiveTab] = useState<"overview" | "reputation" | "activity">("overview");
   const [voteScore, setVoteScore] = useState(50);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAgent();
-    fetchReputationHistory();
-    fetchActivity();
-  }, [agentId]);
-
-  async function fetchAgent() {
+  const fetchAgent = useCallback(async () => {
     try {
       const res = await fetch(`http://localhost:4000/api/v1/agents/${agentId}`);
       if (res.ok) {
-        setAgent(await res.json());
+        return (await res.json()) as Agent;
       }
     } catch (err) {
       console.error("Failed to fetch agent:", err);
-    } finally {
-      setLoading(false);
     }
-  }
+    return null;
+  }, [agentId]);
 
-  async function fetchReputationHistory() {
+  const fetchReputationHistory = useCallback(async () => {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/${agentId}/reputation-history?limit=30`
       );
       if (res.ok) {
         const data: ReputationHistoryResponse = await res.json();
-        setReputationHistory(data.data);
+        return data.data;
       }
     } catch (err) {
       console.error("Failed to fetch reputation history:", err);
     }
-  }
+    return null;
+  }, [agentId]);
 
-  async function fetchActivity() {
+  const fetchActivity = useCallback(async () => {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/${agentId}/activity?limit=20`
       );
       if (res.ok) {
         const data: ActivityFeedResponse = await res.json();
-        setActivity(data.data);
+        return data.data;
       }
     } catch (err) {
       console.error("Failed to fetch activity:", err);
     }
-  }
+    return null;
+  }, [agentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([fetchAgent(), fetchReputationHistory(), fetchActivity()]).then(
+      ([nextAgent, nextReputationHistory, nextActivity]) => {
+        if (cancelled) return;
+        if (nextAgent) setAgent(nextAgent);
+        if (nextReputationHistory) setReputationHistory(nextReputationHistory);
+        if (nextActivity) setActivity(nextActivity);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchActivity, fetchAgent, fetchReputationHistory]);
 
   async function submitVote() {
     try {
@@ -97,7 +122,8 @@ export default function AgentProfilePage() {
       });
       if (res.ok) {
         alert("Vote submitted!");
-        fetchReputationHistory();
+        const nextReputationHistory = await fetchReputationHistory();
+        if (nextReputationHistory) setReputationHistory(nextReputationHistory);
       }
     } catch (err) {
       console.error("Failed to submit vote:", err);

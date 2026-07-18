@@ -1,4 +1,4 @@
-const { Networks, SorobanRpc, Horizon } = require("@stellar/stellar-sdk");
+const { Networks, rpc, Horizon } = require("@stellar/stellar-sdk");
 
 const NETWORK = process.env.STELLAR_NETWORK || "testnet";
 
@@ -33,7 +33,7 @@ const horizonUrl =
   HORIZON_URLS[NETWORK] ||
   HORIZON_URLS.testnet;
 
-const rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: false });
+const rpcServer = new rpc.Server(rpcUrl, { allowHttp: false });
 const horizonServer = new Horizon.Server(horizonUrl);
 
 const CONTRACT_IDS = {

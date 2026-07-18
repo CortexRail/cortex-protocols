@@ -448,6 +448,3 @@ impl MarketplaceContract {
         load_license(&env, &buyer, asset_id)
     }
 }
-
-// Note: max 10_000 assets per contract instance (governance limit)
-const MAX_ASSETS: u64 = 10_000;

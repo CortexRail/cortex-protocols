@@ -6,8 +6,7 @@
 //! declarations, reputation scores, and wallet addresses.
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Map, String, Symbol,
-    Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String, Symbol, Vec,
 };
 
 const AGENTS: Symbol = symbol_short!("AGENTS");
@@ -99,10 +98,8 @@ impl AgentRegistryContract {
         env.storage().persistent().set(&AGENTS, &agents);
         env.storage().instance().set(&AGENT_CNT, &agent_id);
 
-        env.events().publish(
-            (symbol_short!("REGISTERED"), owner),
-            agent_id,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "REGISTERED"), owner), agent_id);
 
         agent_id
     }
@@ -151,7 +148,7 @@ impl AgentRegistryContract {
         assert!(agent.owner != voter, "cannot vote on own agent");
 
         // Simple rolling average update (weight = 10% of current)
-        let new_score_bp = score as u32 * 100; // convert to basis points
+        let new_score_bp = score * 100; // convert to basis points
         agent.reputation = (agent.reputation * 9 + new_score_bp) / 10;
 
         agents.set(agent_id, agent);
