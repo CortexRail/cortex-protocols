@@ -385,8 +385,12 @@ Step 3/3: Verification
 | `list_asset(owner, name, desc, type, license, price)` | List new asset → returns asset_id | owner |
 | `delist_asset(owner, asset_id)` | Deactivate an asset | owner |
 | `update_price(owner, asset_id, new_price)` | Change price | owner |
-| `purchase_license(buyer, asset_id, token)` | Buy a license via token transfer | buyer |
+| `publish_update(owner, asset_id, new_description)` | Publish the next asset version | owner |
+| `purchase_license(buyer, asset_id, token)` | Buy and pin the current version | buyer |
+| `purchase_license_version(buyer, asset_id, version, token)` | Buy and pin a retained version | buyer |
 | `get_asset(asset_id)` | Read asset record | none |
+| `get_asset_history(asset_id)` | Read the five retained versions | none |
+| `get_asset_version(asset_id, version)` | Read one retained version | none |
 | `asset_count()` | Total assets listed | none |
 | `has_license(buyer, asset_id)` | Check if buyer holds license | none |
 | `get_license(buyer, asset_id)` | Get license details | none |
@@ -394,6 +398,41 @@ Step 3/3: Verification
 **Asset types:** Prompt, Workflow, ReasoningChain, Dataset, Evaluator, MemorySystem, ModelInstruction, Tool
 
 **License types:** Perpetual, UsageBased (100 calls default), Subscription, OpenSource
+
+#### Asset versions and history
+
+Every newly listed asset starts at version `1`. Its initial description is
+stored immediately as the first `AssetVersion` snapshot. Calling
+`publish_update` requires the asset owner's authorization, replaces the current
+description, increments the `u32` version with checked arithmetic, and appends a
+timestamped snapshot.
+
+The contract retains five total snapshots per asset, including the current
+version, ordered oldest to newest. Publishing a sixth snapshot evicts the oldest
+one. `get_asset_version` therefore returns `None` for versions that have fallen
+outside the retained window.
+
+`purchase_license` preserves the original public interface and pins the license
+to the asset's current version. `purchase_license_version` accepts an explicit
+retained version and rejects zero, future, or evicted versions. The selected
+version is recorded in `License.asset_version`; price and license terms still
+come from the current listing.
+
+Pre-versioning assets and licenses remain in their original storage namespaces.
+They are read through their exact legacy encodings and lazily copied into the V2
+namespaces as version `1`; legacy entries are not deleted. Consequently, an
+existing license is reported as pinned to version `1` after migration.
+
+#### Marketplace events
+
+Marketplace events use the action and actor as topics. Version publication emits:
+
+| Event | Topics | Data |
+| --- | --- | --- |
+| `LISTED` | `(LISTED, owner)` | `asset_id` |
+| `UPDATED` | `(UPDATED, owner)` | `(asset_id, old_version, new_version)` |
+| `DELISTED` | `(DELISTED, owner)` | `asset_id` |
+| `PURCHASED` | `(PURCHASED, buyer)` | `(asset_id, price)` |
 
 ---
 
@@ -648,7 +687,8 @@ cd fuzz
 cargo +nightly fuzz run list_asset -- -max_total_time=1800
 ```
 
-The available targets are `list_asset`, `purchase_license`, and `open_stream`.
+The available targets are `list_asset`, `purchase_license`, `publish_update`,
+and `open_stream`.
 See [`fuzz/README.md`](fuzz/README.md) for all commands, generated-input handling,
 methodology, findings, and completed-run results.
 

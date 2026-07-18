@@ -140,5 +140,13 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(stored.owner, owner);
         assert_eq!(stored.price, price);
         assert_eq!(stored.created_at, timestamp);
+        assert_eq!(stored.version, 1);
+
+        let history = client.get_asset_history(&asset_id);
+        assert_eq!(history.len(), 1);
+        let initial = history.get(0).expect("version one must be retained");
+        assert_eq!(initial.version, 1);
+        assert_eq!(initial.description, description);
+        assert_eq!(initial.updated_at, timestamp);
     }
 });

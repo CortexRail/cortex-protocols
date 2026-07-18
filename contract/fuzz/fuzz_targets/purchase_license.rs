@@ -61,6 +61,20 @@ fn selected_asset_id(selector: u8, listed_id: u64, data: &[u8]) -> u64 {
     }
 }
 
+fn selected_asset_version(selector: u8, current_version: u32, data: &[u8]) -> u32 {
+    let mut raw = [0u8; 4];
+    let copied = data.len().min(raw.len());
+    raw[..copied].copy_from_slice(&data[..copied]);
+
+    match selector % 5 {
+        0 => current_version,
+        1 => 0,
+        2 => current_version.saturating_add(1),
+        3 => 1,
+        _ => u32::from_le_bytes(raw),
+    }
+}
+
 fn selected_balance(selector: u8, price: i128, data: &[u8]) -> i128 {
     let required = if price > 0 { price } else { 0 };
     let ordinary = (arbitrary_i128(data).unsigned_abs() % 10_000_000_001) as i128;
@@ -159,9 +173,23 @@ fuzz_target!(|data: &[u8]| {
         .get_asset(&listed_id)
         .expect("the listed asset must remain retrievable")
         .usage_count;
+    let current_version = marketplace
+        .get_asset(&listed_id)
+        .expect("the listed asset must remain retrievable")
+        .version;
+    let use_explicit_version = byte_at(data, 7) % 2 == 1;
+    let requested_version = selected_asset_version(byte_at(payload, 0), current_version, payload);
 
-    let purchase_result =
-        marketplace.try_purchase_license(&buyer, &purchase_asset_id, &token_address);
+    let purchase_result = if use_explicit_version {
+        marketplace.try_purchase_license_version(
+            &buyer,
+            &purchase_asset_id,
+            &requested_version,
+            &token_address,
+        )
+    } else {
+        marketplace.try_purchase_license(&buyer, &purchase_asset_id, &token_address)
+    };
 
     match purchase_result {
         Ok(Ok(license)) => {
@@ -175,6 +203,14 @@ fuzz_target!(|data: &[u8]| {
             };
             assert_eq!(license.buyer, buyer);
             assert_eq!(license.asset_id, purchase_asset_id);
+            assert_eq!(
+                license.asset_version,
+                if use_explicit_version {
+                    requested_version
+                } else {
+                    current_version
+                }
+            );
             assert_eq!(license.license_type, license_type);
             assert_eq!(license.purchased_at, purchase_timestamp);
             assert_eq!(license.calls_remaining, expected_calls_remaining);
@@ -192,6 +228,7 @@ fuzz_target!(|data: &[u8]| {
                 .expect("a successful purchase must store its license");
             assert_eq!(stored_license.buyer, buyer);
             assert_eq!(stored_license.asset_id, purchase_asset_id);
+            assert_eq!(stored_license.asset_version, license.asset_version);
             assert_eq!(stored_license.license_type, license_type);
             assert_eq!(stored_license.purchased_at, purchase_timestamp);
             assert_eq!(stored_license.calls_remaining, expected_calls_remaining);
