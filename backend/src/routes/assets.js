@@ -83,6 +83,7 @@ router.post(
     body("assetType").isIn(ASSET_TYPES),
     body("licenseType").isIn(LICENSE_TYPES),
     body("price").isInt({ min: 0 }),
+    body("version").optional().isInt({ min: 1 }),
     body("tags").optional().isArray(),
   ],
   validate,
@@ -106,12 +107,20 @@ router.post(
       .bail()
       .custom(isValidStellarAddress)
       .withMessage("must be a valid Stellar public key"),
+    body("assetVersion")
+      .optional()
+      .custom(Number.isInteger)
+      .withMessage("must be an integer")
+      .bail()
+      .custom((value) => value >= 1)
+      .withMessage("must be greater than or equal to 1"),
   ],
   validate,
   asyncHandler(async (req, res) => {
     const result = await purchaseLicense({
       assetId: Number(req.params.id),
       buyer: req.body.buyer,
+      assetVersion: req.body.assetVersion,
     });
     res.status(201).json(result);
   })

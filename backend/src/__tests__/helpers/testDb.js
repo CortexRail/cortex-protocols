@@ -39,6 +39,7 @@ function buildAsset(overrides = {}) {
     assetType: "Prompt",
     licenseType: "Perpetual",
     price: 1_000_000,
+    version: 1,
     usageCount: 0,
     isActive: true,
     tags: ["test"],

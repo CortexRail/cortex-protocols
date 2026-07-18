@@ -71,6 +71,13 @@ async function removeAsset(id) {
 }
 
 /**
+ * Advance the current indexed version after an on-chain UPDATED event.
+ */
+async function updateAssetVersion(id, version) {
+  return assetRepository.updateVersion(id, version);
+}
+
+/**
  * Normalize a tag string to lowercase kebab-case.
  */
 function normalizeTag(tag) {
@@ -82,6 +89,7 @@ module.exports = {
   listAssets,
   getAsset,
   removeAsset,
+  updateAssetVersion,
   normalizeTag,
   ASSET_TYPES,
   LICENSE_TYPES,
