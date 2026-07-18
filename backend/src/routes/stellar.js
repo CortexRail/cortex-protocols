@@ -4,6 +4,7 @@ const rateLimit = require("express-rate-limit");
 const validate = require("../middleware/validate");
 const { horizonServer, rpcServer, NETWORK, CONTRACT_IDS } = require("../config/stellar");
 const { getAccountTransactions } = require("../services/transactionService");
+const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
 
@@ -25,7 +26,13 @@ const txRateLimiter = rateLimit({
  */
 router.get(
   "/account/:publicKey",
-  [param("publicKey").isString().isLength({ min: 56, max: 56 })],
+  [
+    param("publicKey")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+  ],
   validate,
   async (req, res, next) => {
     try {
@@ -95,7 +102,11 @@ router.get(
   "/account/:publicKey/transactions",
   txRateLimiter,
   [
-    param("publicKey").isString().isLength({ min: 56, max: 56 }),
+    param("publicKey")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
     query("page").optional().isInt({ min: 1 }),
     query("limit").optional().isInt({ min: 1, max: 200 }),
     query("cursor").optional().isString().trim(),

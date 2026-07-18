@@ -10,6 +10,7 @@ const {
   LICENSE_TYPES,
 } = require("../services/assetService");
 const { purchaseLicense } = require("../services/licenseService");
+const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
 
@@ -72,7 +73,11 @@ router.post(
   "/",
   [
     body("id").isInt({ min: 1 }),
-    body("owner").isString().isLength({ min: 56, max: 56 }),
+    body("owner")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
     body("name").isString().trim().isLength({ min: 1, max: 200 }),
     body("description").isString().trim().isLength({ min: 1, max: 2000 }),
     body("assetType").isIn(ASSET_TYPES),
@@ -96,7 +101,11 @@ router.post(
   "/:id/purchase",
   [
     param("id").isInt({ min: 1 }),
-    body("buyer").isString().isLength({ min: 56, max: 56 }),
+    body("buyer")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
   ],
   validate,
   asyncHandler(async (req, res) => {

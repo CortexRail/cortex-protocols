@@ -3,6 +3,10 @@ const app = require("../app");
 const { seed } = require("../db/seed");
 const { truncateAll, closePool, OWNER_B } = require("./helpers/testDb");
 
+// Right length (56 chars), right "G" prefix, but an invalid checksum.
+const BAD_CHECKSUM_KEY =
+  "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
 beforeAll(async () => {
   await truncateAll();
   await seed();
@@ -103,6 +107,23 @@ describe("POST /api/v1/assets", () => {
       .send({ id: 901, name: "incomplete" })
       .expect(422);
   });
+
+  it("rejects an owner with an invalid checksum, naming the field", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets")
+      .send({
+        id: 902,
+        owner: BAD_CHECKSUM_KEY,
+        name: "Bad Owner Asset",
+        description: "Should fail validation before reaching the DB.",
+        assetType: "Dataset",
+        licenseType: "OpenSource",
+        price: 0,
+      })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "owner")).toBe(true);
+  });
 });
 
 describe("POST /api/v1/assets/:id/purchase", () => {
@@ -138,6 +159,15 @@ describe("POST /api/v1/assets/:id/purchase", () => {
       .post("/api/v1/assets/2/purchase")
       .send({ buyer: "too-short" })
       .expect(422);
+  });
+
+  it("rejects a buyer with the right length but an invalid checksum", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets/2/purchase")
+      .send({ buyer: BAD_CHECKSUM_KEY })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "buyer")).toBe(true);
   });
 });
 

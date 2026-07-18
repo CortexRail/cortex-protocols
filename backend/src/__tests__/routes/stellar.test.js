@@ -46,8 +46,11 @@ const { horizonServer, CONTRACT_IDS } = require("../../config/stellar");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const VALID_KEY = "GBQNX4XFBKZ2S2GZPB2XVVZ5VVQYHXQAQYYVRJXPVDGXNVKGKBFLR3";
-const UNKNOWN_KEY = "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGGEWNG5PZWXU2CQKM4PAT";
+// Real, checksum-valid Ed25519 public keys — route validation now checks the
+// StrKey checksum, so placeholder-looking strings of the right length no
+// longer pass.
+const VALID_KEY = "GDQRRTSA2OFYBTJT2Y7BWE5HM5TGQJBSTD2VJKSCOH62SY7TRYLUS24Y";
+const UNKNOWN_KEY = "GA7JTW4JG2MYKF4GB3FAAJD3DNPRROXUSP2GUXRJUY5HS2H5EMQTDKPJ";
 
 function makeTx(overrides = {}) {
   return {
@@ -105,6 +108,38 @@ beforeEach(() => {
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("GET /api/v1/stellar/account/:publicKey", () => {
+  it("returns 200 with account data for a valid public key", async () => {
+    horizonServer.loadAccount.mockResolvedValue({
+      account_id: VALID_KEY,
+      sequence: "123",
+      balances: [],
+      subentry_count: 0,
+    });
+
+    const res = await request(app)
+      .get(`/api/v1/stellar/account/${VALID_KEY}`)
+      .expect(200);
+
+    expect(res.body.publicKey).toBe(VALID_KEY);
+  });
+
+  it("returns 422 for a public key shorter than 56 characters", async () => {
+    await request(app).get("/api/v1/stellar/account/TOOSHORT").expect(422);
+  });
+
+  it("returns 422, naming the field, for a 56-char key with an invalid checksum", async () => {
+    const badChecksum =
+      "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
+    const res = await request(app)
+      .get(`/api/v1/stellar/account/${badChecksum}`)
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "publicKey")).toBe(true);
+  });
+});
 
 describe("GET /api/v1/stellar/account/:publicKey/transactions", () => {
   // ── Happy path ─────────────────────────────────────────────────────────────
@@ -327,6 +362,18 @@ describe("GET /api/v1/stellar/account/:publicKey/transactions", () => {
     await request(app)
       .get(`/api/v1/stellar/account/${tooLong}/transactions`)
       .expect(422);
+  });
+
+  it("returns 422, naming the field, for a 56-char key with an invalid checksum", async () => {
+    // Right length, right "G" prefix, but the checksum doesn't verify.
+    const badChecksum =
+      "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
+    const res = await request(app)
+      .get(`/api/v1/stellar/account/${badChecksum}/transactions`)
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "publicKey")).toBe(true);
   });
 
   it("returns 422 for a non-integer limit param", async () => {

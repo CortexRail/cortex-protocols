@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { body, query, param } = require("express-validator");
 const validate = require("../middleware/validate");
 const asyncHandler = require("../middleware/asyncHandler");
+const { isValidStellarAddress } = require("../utils/stellar");
 const {
   listAgents,
   getAgent,
@@ -93,7 +94,11 @@ router.post(
   "/",
   [
     body("id").isInt({ min: 1 }),
-    body("owner").isString().isLength({ min: 56, max: 56 }),
+    body("owner")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
     body("name").isString().trim().isLength({ min: 1, max: 100 }),
     body("description").isString().trim().isLength({ min: 1, max: 1000 }),
     body("capabilities").isArray(),
@@ -137,7 +142,11 @@ router.post(
   [
     param("id").isInt({ min: 1 }),
     body("score").isInt({ min: 0, max: 100 }),
-    body("voter").isString().isLength({ min: 56, max: 56 }),
+    body("voter")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
   ],
   validate,
   (req, res) => {
