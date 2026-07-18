@@ -3,6 +3,10 @@ const app = require("../app");
 const { seed } = require("../db/seed");
 const { truncateAll, closePool, OWNER_B } = require("./helpers/testDb");
 
+// Right length (56 chars), right "G" prefix, but an invalid checksum.
+const BAD_CHECKSUM_KEY =
+  "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
 beforeAll(async () => {
   await truncateAll();
   await seed();
@@ -93,6 +97,32 @@ describe("POST /api/v1/agents", () => {
         capabilities: ["TimeTravel"],
       })
       .expect(422);
+  });
+
+  it("rejects an owner with the right length but an invalid checksum, naming the field", async () => {
+    const res = await request(app)
+      .post("/api/v1/agents")
+      .send({
+        id: 802,
+        owner: BAD_CHECKSUM_KEY,
+        name: "Bad Owner Agent",
+        description: "Should fail validation before reaching the DB.",
+        capabilities: ["Reasoning"],
+      })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "owner")).toBe(true);
+  });
+});
+
+describe("POST /api/v1/agents/:id/reputation", () => {
+  it("rejects a voter with the right length but an invalid checksum, naming the field", async () => {
+    const res = await request(app)
+      .post("/api/v1/agents/1/reputation")
+      .send({ score: 80, voter: BAD_CHECKSUM_KEY })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "voter")).toBe(true);
   });
 });
 
