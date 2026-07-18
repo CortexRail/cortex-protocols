@@ -6,6 +6,7 @@ const {
   indexStream,
   getStream,
   listStreams,
+  recordWithdrawal,
   STREAM_STATUSES,
 } = require("../services/streamService");
 
@@ -74,6 +75,31 @@ router.post(
   asyncHandler(async (req, res) => {
     const stream = await indexStream(req.body);
     res.status(201).json(stream);
+  })
+);
+
+/**
+ * POST /api/v1/streams/:id/withdraw
+ * Record a withdrawal from a payment stream.
+ */
+router.post(
+  "/:id/withdraw",
+  [
+    param("id").isInt({ min: 1 }),
+    body("recipient").isString().isLength({ min: 56, max: 56 }),
+    body("amount").isInt({ min: 1 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const stream = await getStream(req.params.id);
+    if (!stream) {
+      return res.status(404).json({ error: "Stream not found" });
+    }
+    if (stream.recipient !== req.body.recipient) {
+      return res.status(403).json({ error: "Not the stream recipient" });
+    }
+    const updated = await recordWithdrawal(stream.id, req.body.amount);
+    res.json(updated);
   })
 );
 
