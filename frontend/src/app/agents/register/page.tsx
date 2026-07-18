@@ -78,18 +78,18 @@ export default function RegisterAgentPage() {
   };
 
   return (
-    <main className="min-h-screen bg-black text-white pt-12 px-6 pb-12">
+    <main className="min-h-screen bg-white dark:bg-black text-black dark:text-white pt-20 px-6 pb-12">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="mb-12">
           <Link
             href="/agents"
-            className="text-zinc-400 hover:text-white mb-6 inline-block text-sm"
+            className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white mb-6 inline-block text-sm"
           >
             ← Back to Directory
           </Link>
           <h1 className="text-3xl font-bold mb-2">Register Your Agent</h1>
-          <p className="text-zinc-400">Join the Intelligence Rail marketplace</p>
+          <p className="text-zinc-500 dark:text-zinc-400">Join the Intelligence Rail marketplace</p>
         </div>
 
         {/* Progress Bar */}
@@ -101,12 +101,12 @@ export default function RegisterAgentPage() {
                   className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-2 font-semibold ${
                     step >= s
                       ? "bg-purple-600 text-white"
-                      : "bg-zinc-800 text-zinc-500"
+                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500"
                   }`}
                 >
                   {s}
                 </div>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-zinc-400 dark:text-zinc-500">
                   {["Identity", "Capabilities", "Preview", "Sign"][s - 1]}
                 </p>
               </div>
@@ -115,7 +115,7 @@ export default function RegisterAgentPage() {
         </div>
 
         {/* Form */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8">
+        <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-8">
           {/* Step 1: Identity */}
           {step === 1 && (
             <div className="space-y-6">
@@ -126,7 +126,7 @@ export default function RegisterAgentPage() {
                   value={formData.name}
                   onChange={(e) => updateForm("name", e.target.value)}
                   placeholder="e.g., CodeWeaver v2"
-                  className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  className="w-full px-4 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-black dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:border-purple-500"
                 />
               </div>
 
@@ -137,7 +137,7 @@ export default function RegisterAgentPage() {
                   onChange={(e) => updateForm("description", e.target.value)}
                   placeholder="Describe your agent's purpose, specialization, and unique value..."
                   rows={4}
-                  className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  className="w-full px-4 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-black dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:border-purple-500"
                 />
               </div>
             </div>
@@ -146,7 +146,7 @@ export default function RegisterAgentPage() {
           {/* Step 2: Capabilities */}
           {step === 2 && (
             <div className="space-y-4">
-              <p className="text-sm text-zinc-400 mb-6">Select all capabilities this agent has *</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">Select all capabilities this agent has *</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {CAPABILITIES.map((cap) => (
                   <label
@@ -154,7 +154,7 @@ export default function RegisterAgentPage() {
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
                       formData.capabilities.includes(cap.id)
                         ? "border-purple-500 bg-purple-500/10"
-                        : "border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+                        : "border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700"
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -166,7 +166,7 @@ export default function RegisterAgentPage() {
                       />
                       <div>
                         <p className="font-semibold text-sm">{cap.label}</p>
-                        <p className="text-xs text-zinc-500">{cap.desc}</p>
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500">{cap.desc}</p>
                       </div>
                     </div>
                   </label>
@@ -178,11 +178,11 @@ export default function RegisterAgentPage() {
           {/* Step 3: Preview */}
           {step === 3 && (
             <div className="space-y-6">
-              <div className="p-6 bg-zinc-800 border border-zinc-700 rounded-lg">
+              <div className="p-6 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg">
                 <h3 className="font-semibold mb-4">Agent Card Preview</h3>
                 <div>
                   <p className="text-lg font-bold mb-2">{formData.name || "Unnamed Agent"}</p>
-                  <p className="text-sm text-zinc-300 mb-4">
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300 mb-4">
                     {formData.description || "No description provided"}
                   </p>
                   <div className="flex flex-wrap gap-2">
@@ -196,21 +196,21 @@ export default function RegisterAgentPage() {
                         </span>
                       ))
                     ) : (
-                      <span className="text-xs text-zinc-500">No capabilities selected</span>
+                      <span className="text-xs text-zinc-400 dark:text-zinc-500">No capabilities selected</span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="p-6 bg-zinc-800 border border-zinc-700 rounded-lg">
+              <div className="p-6 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg">
                 <h3 className="font-semibold mb-4">Profile Information</h3>
                 <dl className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <dt className="text-zinc-400">Name:</dt>
+                    <dt className="text-zinc-500 dark:text-zinc-400">Name:</dt>
                     <dd className="font-semibold">{formData.name}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-zinc-400">Capabilities:</dt>
+                    <dt className="text-zinc-500 dark:text-zinc-400">Capabilities:</dt>
                     <dd className="font-semibold">{formData.capabilities.length}</dd>
                   </div>
                 </dl>
@@ -223,14 +223,14 @@ export default function RegisterAgentPage() {
             <div className="space-y-6 text-center">
               <div className="p-6 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                 <h3 className="font-semibold mb-2">Ready to Register</h3>
-                <p className="text-sm text-zinc-300 mb-4">
+                <p className="text-sm text-zinc-600 dark:text-zinc-300 mb-4">
                   You&apos;ll be asked to sign the transaction with your Freighter wallet.
                 </p>
               </div>
 
               <div className="space-y-3 text-left text-sm">
-                <p className="text-zinc-400 mb-4">Registration will:</p>
-                <ul className="space-y-2 text-zinc-300">
+                <p className="text-zinc-500 dark:text-zinc-400 mb-4">Registration will:</p>
+                <ul className="space-y-2 text-zinc-600 dark:text-zinc-300">
                   <li>✓ Register your agent on-chain</li>
                   <li>✓ Set your capabilities and reputation to 50%</li>
                   <li>✓ Make your agent discoverable</li>
@@ -246,7 +246,7 @@ export default function RegisterAgentPage() {
           <button
             onClick={() => setStep(Math.max(1, step - 1) as Step)}
             disabled={step === 1}
-            className="px-6 py-2 border border-zinc-700 rounded-lg hover:border-zinc-600 disabled:opacity-50 font-semibold transition-colors"
+            className="px-6 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:border-zinc-400 dark:hover:border-zinc-600 disabled:opacity-50 font-semibold transition-colors"
           >
             Previous
           </button>

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-6">
+    <main className="min-h-screen bg-white dark:bg-black text-black dark:text-white flex flex-col items-center justify-center px-6 pt-20">
       <div className="max-w-3xl w-full text-center space-y-8">
         {/* Header */}
         <div className="space-y-3">
@@ -12,14 +12,14 @@ export default function Home() {
           <h1 className="text-5xl font-bold tracking-tight">
             Intelligence Rail
           </h1>
-          <p className="text-lg text-zinc-400 max-w-xl mx-auto">
+          <p className="text-lg text-zinc-500 dark:text-zinc-400 max-w-xl mx-auto">
             Open infrastructure for autonomous agents to discover, exchange, and
             evolve intelligence assets through programmable micropayments.
           </p>
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-3 gap-4 py-6 border-y border-zinc-800">
+        <div className="grid grid-cols-3 gap-4 py-6 border-y border-zinc-200 dark:border-zinc-800">
           {[
             { label: "Asset Types", value: "8" },
             { label: "License Models", value: "4" },
@@ -27,7 +27,7 @@ export default function Home() {
           ].map(({ label, value }) => (
             <div key={label} className="space-y-1">
               <p className="text-2xl font-bold">{value}</p>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider">{label}</p>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{label}</p>
             </div>
           ))}
         </div>
@@ -44,7 +44,7 @@ export default function Home() {
           ].map((feature) => (
             <div
               key={feature}
-              className="flex items-center gap-2 text-sm text-zinc-300"
+              className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300"
             >
               <span className="text-purple-400">▸</span>
               {feature}
@@ -58,13 +58,13 @@ export default function Home() {
             href="https://github.com/CortexRail/cortex-protocols"
             target="_blank"
             rel="noopener noreferrer"
-            className="px-6 py-3 bg-white text-black font-semibold rounded-lg hover:bg-zinc-200 transition-colors"
+            className="px-6 py-3 bg-black dark:bg-white text-white dark:text-black font-semibold rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
           >
             View on GitHub
           </a>
           <Link
             href="/marketplace"
-            className="px-6 py-3 border border-zinc-700 text-white font-semibold rounded-lg hover:border-zinc-500 transition-colors"
+            className="px-6 py-3 border border-zinc-300 dark:border-zinc-700 text-black dark:text-white font-semibold rounded-lg hover:border-zinc-400 dark:hover:border-zinc-500 transition-colors"
           >
             Explore Marketplace
           </Link>
