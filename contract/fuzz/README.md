@@ -26,18 +26,10 @@ cargo +nightly fuzz run open_stream -- -max_total_time=1800
 
 ## Corpora and artifacts
 
-Curated seed corpora are stored under `contract/fuzz/corpus/<target>/`. The
-current curated seed counts are:
-
-| Target | Curated seeds |
-| --- | ---: |
-| `list_asset` | 10 |
-| `purchase_license` | 13 |
-| `open_stream` | 15 |
-
-New inputs discovered by libFuzzer may appear as hash-named files in these
-corpus directories. Do not commit generated hash-named entries unless they are
-being intentionally retained as regression cases.
+During local fuzz runs, libFuzzer may create per-target corpus directories
+under `contract/fuzz/corpus/`. These generated corpus inputs are ignored by Git
+and should not be committed unless maintainers explicitly request a minimized
+regression case.
 
 Generated crash and diagnostic artifacts are stored under
 `contract/fuzz/artifacts/<target>/`. Reproduce a saved artifact from
@@ -72,7 +64,7 @@ Each target completed a 30-minute run:
 
 ## Behavioral finding
 
-During the initial `purchase_license` smoke run, the zero-price seed showed
+During the initial `purchase_license` smoke run, a zero-price input showed
 that a zero-priced asset can currently be listed and purchased successfully.
 The unused marketplace `errors.rs` file describes `InvalidPrice` as “Price must
 be greater than zero,” but that module is not connected to the active contract.

@@ -649,7 +649,7 @@ cargo +nightly fuzz run list_asset -- -max_total_time=1800
 ```
 
 The available targets are `list_asset`, `purchase_license`, and `open_stream`.
-See [`fuzz/README.md`](fuzz/README.md) for all commands, corpus guidance,
+See [`fuzz/README.md`](fuzz/README.md) for all commands, generated-input handling,
 methodology, findings, and completed-run results.
 
 ## Security Notes
