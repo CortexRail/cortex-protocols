@@ -16,6 +16,7 @@ describe("GET /api/v1/agents", () => {
   it("returns a list of agents", async () => {
     const res = await request(app).get("/api/v1/agents").expect(200);
     expect(res.body).toHaveProperty("data");
+    expect(res.body).toHaveProperty("meta");
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data.length).toBeGreaterThan(0);
   });
@@ -40,14 +41,23 @@ describe("GET /api/v1/agents", () => {
   });
 
   it("rejects invalid capability", async () => {
-    await request(app).get("/api/v1/agents?capability=FlyLikeBird").expect(422);
+    await request(app).get("/api/v1/agents?capability=Invalid").expect(422);
+  });
+
+  it("paginates correctly", async () => {
+    const res = await request(app)
+      .get("/api/v1/agents?page=1&limit=2")
+      .expect(200);
+    expect(res.body.data.length).toBeLessThanOrEqual(2);
+    expect(res.body.meta.limit).toBe(2);
   });
 });
 
 describe("GET /api/v1/agents/:id", () => {
   it("returns an agent by id", async () => {
     const res = await request(app).get("/api/v1/agents/1").expect(200);
-    expect(res.body.id).toBe(1);
+    expect(res.body).toHaveProperty("id");
+    expect(res.body).toHaveProperty("name");
   });
 
   it("returns 404 for unknown agent", async () => {

@@ -6,6 +6,10 @@ const {
   listAgents,
   getAgent,
   registerAgent,
+  submitReputation,
+  getReputationHistory,
+  getActivityFeed,
+  getLeaderboard,
   CAPABILITIES,
 } = require("../services/agentService");
 
@@ -37,6 +41,32 @@ router.get(
     });
     res.json(result);
   })
+);
+
+/**
+ * GET /api/v1/agents/capabilities/list
+ */
+router.get("/capabilities/list", (_req, res) => {
+  res.json({ capabilities: CAPABILITIES });
+});
+
+/**
+ * GET /api/v1/agents/leaderboard
+ * Get top agents by reputation, activity, or earnings.
+ */
+router.get(
+  "/leaderboard",
+  [query("sortBy").optional().isIn(["reputation", "activity", "earnings"]), query("limit").optional().isInt({ min: 1, max: 100 })],
+  validate,
+  (req, res) => {
+    const sortBy = req.query.sortBy || "reputation";
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const leaderboard = getLeaderboard(sortBy, limit);
+    res.json({
+      data: leaderboard,
+      meta: { sortBy, limit, count: leaderboard.length },
+    });
+  }
 );
 
 /**
@@ -77,10 +107,71 @@ router.post(
 );
 
 /**
- * GET /api/v1/agents/capabilities/list
+ * GET /api/v1/agents/:id/reputation-history
+ * Get time-series reputation votes for an agent.
  */
-router.get("/capabilities/list", (_req, res) => {
-  res.json({ capabilities: CAPABILITIES });
-});
+router.get(
+  "/:id/reputation-history",
+  [param("id").isInt({ min: 1 }), query("limit").optional().isInt({ min: 1, max: 100 })],
+  validate,
+  (req, res) => {
+    const agent = getAgent(req.params.id);
+    if (!agent) {
+      return res.status(404).json({ error: "Agent not found" });
+    }
+    const limit = req.query.limit ? Number(req.query.limit) : 30;
+    const history = getReputationHistory(req.params.id, limit);
+    res.json({
+      data: history,
+      meta: { agentId: req.params.id, count: history.length },
+    });
+  }
+);
+
+/**
+ * POST /api/v1/agents/:id/reputation
+ * Submit a reputation vote (0-100) for an agent.
+ */
+router.post(
+  "/:id/reputation",
+  [
+    param("id").isInt({ min: 1 }),
+    body("score").isInt({ min: 0, max: 100 }),
+    body("voter").isString().isLength({ min: 56, max: 56 }),
+  ],
+  validate,
+  (req, res) => {
+    const agent = getAgent(req.params.id);
+    if (!agent) {
+      return res.status(404).json({ error: "Agent not found" });
+    }
+    const vote = submitReputation(req.params.id, req.body.score, req.body.voter);
+    res.status(201).json(vote);
+  }
+);
+
+/**
+ * GET /api/v1/agents/:id/activity
+ * Get paginated on-chain event feed for an agent.
+ */
+router.get(
+  "/:id/activity",
+  [
+    param("id").isInt({ min: 1 }),
+    query("page").optional().isInt({ min: 1 }),
+    query("limit").optional().isInt({ min: 1, max: 100 }),
+  ],
+  validate,
+  (req, res) => {
+    const agent = getAgent(req.params.id);
+    if (!agent) {
+      return res.status(404).json({ error: "Agent not found" });
+    }
+    const page = req.query.page ? Number(req.query.page) : 1;
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const feed = getActivityFeed(req.params.id, page, limit);
+    res.json(feed);
+  }
+);
 
 module.exports = router;
