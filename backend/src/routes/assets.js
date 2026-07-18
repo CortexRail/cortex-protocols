@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const { body, query, param } = require("express-validator");
 const validate = require("../middleware/validate");
+const asyncHandler = require("../middleware/asyncHandler");
 const {
   listAssets,
   getAsset,
@@ -8,6 +9,7 @@ const {
   ASSET_TYPES,
   LICENSE_TYPES,
 } = require("../services/assetService");
+const { purchaseLicense } = require("../services/licenseService");
 
 const router = Router();
 
@@ -27,11 +29,11 @@ router.get(
     query("limit").optional().isInt({ min: 1, max: 100 }),
   ],
   validate,
-  (req, res) => {
+  asyncHandler(async (req, res) => {
     const { assetType, licenseType, minPrice, maxPrice, search, page, limit } =
       req.query;
 
-    const result = listAssets({
+    const result = await listAssets({
       assetType,
       licenseType,
       minPrice: minPrice !== undefined ? Number(minPrice) : undefined,
@@ -42,7 +44,7 @@ router.get(
     });
 
     res.json(result);
-  }
+  })
 );
 
 /**
@@ -53,13 +55,13 @@ router.get(
   "/:id",
   [param("id").isInt({ min: 1 })],
   validate,
-  (req, res) => {
-    const asset = getAsset(req.params.id);
+  asyncHandler(async (req, res) => {
+    const asset = await getAsset(req.params.id);
     if (!asset) {
       return res.status(404).json({ error: "Asset not found" });
     }
     res.json(asset);
-  }
+  })
 );
 
 /**
@@ -79,10 +81,31 @@ router.post(
     body("tags").optional().isArray(),
   ],
   validate,
-  (req, res) => {
-    const asset = indexAsset(req.body);
+  asyncHandler(async (req, res) => {
+    const asset = await indexAsset(req.body);
     res.status(201).json(asset);
-  }
+  })
+);
+
+/**
+ * POST /api/v1/assets/:id/purchase
+ * Purchase a license for an asset. Creates the license row and bumps the
+ * asset's usage counter in a single transaction.
+ */
+router.post(
+  "/:id/purchase",
+  [
+    param("id").isInt({ min: 1 }),
+    body("buyer").isString().isLength({ min: 56, max: 56 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await purchaseLicense({
+      assetId: Number(req.params.id),
+      buyer: req.body.buyer,
+    });
+    res.status(201).json(result);
+  })
 );
 
 /**

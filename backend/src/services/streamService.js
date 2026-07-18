@@ -1,49 +1,59 @@
 /**
  * Stream indexing service — tracks on-chain payment streams off-chain
  * for fast querying without needing to hit the RPC on every request.
+ *
+ * Same public interface as the old in-memory version, now backed by
+ * PostgreSQL through streamRepository.
  */
 
-const streamsIndex = new Map();
+const streamRepository = require("../repositories/streamRepository");
 
 const STREAM_STATUSES = ["Active", "Paused", "Completed", "Cancelled"];
 
-function indexStream(streamData) {
-  const stream = {
+/**
+ * Index a stream after on-chain creation (upsert by id).
+ */
+async function indexStream(streamData) {
+  return streamRepository.create({
     ...streamData,
     status: streamData.status || "Active",
     withdrawn: streamData.withdrawn || 0,
-    indexedAt: Date.now(),
-  };
-  streamsIndex.set(String(stream.id), stream);
-  return stream;
+  });
 }
 
-function updateStreamStatus(id, status) {
-  const stream = streamsIndex.get(String(id));
-  if (!stream) return null;
-  stream.status = status;
-  stream.updatedAt = Date.now();
-  streamsIndex.set(String(id), stream);
-  return stream;
+/**
+ * Transition a stream's lifecycle status.
+ */
+async function updateStreamStatus(id, status) {
+  return streamRepository.updateStatus(id, status);
 }
 
-function getStream(id) {
-  return streamsIndex.get(String(id)) || null;
+/**
+ * Get a single stream by ID.
+ */
+async function getStream(id) {
+  return streamRepository.findById(id);
 }
 
-function listStreams({ sender, recipient, status, page = 1, limit = 20 } = {}) {
-  let results = Array.from(streamsIndex.values());
-
-  if (sender) results = results.filter((s) => s.sender === sender);
-  if (recipient) results = results.filter((s) => s.recipient === recipient);
-  if (status) results = results.filter((s) => s.status === status);
-
-  const total = results.length;
-  const offset = (page - 1) * limit;
-  return {
-    data: results.slice(offset, offset + limit),
-    meta: { total, page, limit, pages: Math.ceil(total / limit) },
-  };
+/**
+ * List streams, filterable by sender, recipient, and status.
+ */
+async function listStreams({ sender, recipient, status, page = 1, limit = 20 } = {}) {
+  return streamRepository.findAll({ sender, recipient, status }, { page, limit });
 }
 
-module.exports = { indexStream, updateStreamStatus, getStream, listStreams, STREAM_STATUSES };
+/**
+ * Record a withdrawal observed on-chain. Refuses to exceed the deposit.
+ */
+async function recordWithdrawal(id, amount) {
+  return streamRepository.recordWithdrawal(id, amount);
+}
+
+module.exports = {
+  indexStream,
+  updateStreamStatus,
+  getStream,
+  listStreams,
+  recordWithdrawal,
+  STREAM_STATUSES,
+};

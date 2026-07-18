@@ -8,6 +8,7 @@ const assetsRouter = require("./routes/assets");
 const agentsRouter = require("./routes/agents");
 const streamsRouter = require("./routes/streams");
 const stellarRouter = require("./routes/stellar");
+const internalRouter = require("./routes/internal");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -52,6 +53,7 @@ app.use("/api/v1/assets", assetsRouter);
 app.use("/api/v1/agents", agentsRouter);
 app.use("/api/v1/streams", streamsRouter);
 app.use("/api/v1/stellar", stellarRouter);
+app.use("/api/v1/internal", internalRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);
