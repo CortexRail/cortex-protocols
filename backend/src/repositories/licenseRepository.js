@@ -14,7 +14,7 @@ function mapLicense(row) {
   return {
     id: row.id,
     assetId: row.asset_id,
-    assetVersion: row.asset_version,
+    assetVersion: Number(row.asset_version),
     buyer: row.buyer,
     licenseType: row.license_type,
     pricePaid: row.price_paid,

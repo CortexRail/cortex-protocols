@@ -101,13 +101,61 @@ describe("migration runner", () => {
   it.each([
     ["assets", "version"],
     ["licenses", "asset_version"],
-  ])("rejects invalid values for %s.%s", async (table, column) => {
+  ])("uses BIGINT for %s.%s", async (table, column) => {
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+      await createLegacyVersionTables(client);
+      const { rows } = await client.query(
+        `SELECT data_type FROM information_schema.columns
+         WHERE table_schema LIKE 'pg_temp_%'
+           AND table_name = $1
+           AND column_name = $2`,
+        [table, column]
+      );
+      expect(rows[0].data_type).toBe("bigint");
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
+
+  it.each([
+    ["assets", "version"],
+    ["licenses", "asset_version"],
+  ])(
+    "accepts u32 values above INTEGER range for %s.%s",
+    async (table, column) => {
+      const client = await getClient();
+      try {
+        await client.query("BEGIN");
+        await createLegacyVersionTables(client);
+        await expect(
+          client.query(`UPDATE ${table} SET ${column} = $1`, [3_000_000_000])
+        ).resolves.toBeDefined();
+        const { rows } = await client.query(
+          `SELECT ${column} AS version FROM ${table}`
+        );
+        expect(Number(rows[0].version)).toBe(3_000_000_000);
+      } finally {
+        await client.query("ROLLBACK");
+        client.release();
+      }
+    }
+  );
+
+  it.each([
+    ["assets", "version", 0],
+    ["assets", "version", -1],
+    ["licenses", "asset_version", 0],
+    ["licenses", "asset_version", -1],
+  ])("rejects %s.%s value %i", async (table, column, value) => {
     const client = await getClient();
     try {
       await client.query("BEGIN");
       await createLegacyVersionTables(client);
       await expect(
-        client.query(`UPDATE ${table} SET ${column} = 0`)
+        client.query(`UPDATE ${table} SET ${column} = $1`, [value])
       ).rejects.toThrow();
     } finally {
       await client.query("ROLLBACK");

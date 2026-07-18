@@ -27,6 +27,7 @@ function availableVersions(version) {
 
 function mapAsset(row) {
   if (!row) return null;
+  const version = Number(row.version);
   return {
     id: row.id,
     owner: row.owner,
@@ -35,8 +36,8 @@ function mapAsset(row) {
     assetType: row.asset_type,
     licenseType: row.license_type,
     price: row.price,
-    version: row.version,
-    availableVersions: availableVersions(row.version),
+    version,
+    availableVersions: availableVersions(version),
     usageCount: row.usage_count,
     isActive: row.is_active,
     tags: row.tags,

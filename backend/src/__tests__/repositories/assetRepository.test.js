@@ -68,6 +68,18 @@ describe("assetRepository.create", () => {
     expect(updated.name).toBe("Legacy re-index");
   });
 
+  it("upserts a version above the INTEGER range", async () => {
+    const input = buildAsset();
+    await assetRepository.create(input);
+
+    const updated = await assetRepository.create({
+      ...input,
+      version: 3_000_000_000,
+    });
+    expect(updated.version).toBe(3_000_000_000);
+    expect(typeof updated.version).toBe("number");
+  });
+
   it("preserves an explicit createdAt timestamp (ms)", async () => {
     const createdAt = Date.now() - 86_400_000;
     const asset = await assetRepository.create(buildAsset({ createdAt }));
@@ -89,6 +101,24 @@ describe("assetRepository.create", () => {
     const asset = await assetRepository.create(buildAsset({ version }));
     expect(asset.version).toBe(version);
     expect(asset.availableVersions).toEqual(expected);
+  });
+
+  it("maps a u32 version above INTEGER range and its availability as numbers", async () => {
+    const version = 3_000_000_000;
+    const asset = await assetRepository.create(buildAsset({ version }));
+
+    expect(asset.version).toBe(version);
+    expect(typeof asset.version).toBe("number");
+    expect(asset.availableVersions).toEqual([
+      2_999_999_996,
+      2_999_999_997,
+      2_999_999_998,
+      2_999_999_999,
+      3_000_000_000,
+    ]);
+    asset.availableVersions.forEach((availableVersion) =>
+      expect(typeof availableVersion).toBe("number")
+    );
   });
 });
 
@@ -323,6 +353,15 @@ describe("assetRepository.updateVersion", () => {
     const input = buildAsset({ version: 7 });
     await assetRepository.create(input);
     expect((await assetRepository.updateVersion(input.id, 6)).version).toBe(7);
+  });
+
+  it("accepts an event version above the INTEGER range", async () => {
+    const input = buildAsset({ version: 2_999_999_999 });
+    await assetRepository.create(input);
+
+    const updated = await assetRepository.updateVersion(input.id, 3_000_000_000);
+    expect(updated.version).toBe(3_000_000_000);
+    expect(typeof updated.version).toBe("number");
   });
 
   it("returns null for an asset that has not been indexed", async () => {

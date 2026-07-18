@@ -88,6 +88,15 @@ describe("licenseRepository.create", () => {
     expect(license.assetVersion).toBe(3);
   });
 
+  it("maps a u32 asset version above INTEGER range as a number", async () => {
+    const license = await licenseRepository.create(
+      buildLicense({ assetVersion: 3_000_000_000 })
+    );
+
+    expect(license.assetVersion).toBe(3_000_000_000);
+    expect(typeof license.assetVersion).toBe("number");
+  });
+
   it("rejects an invalid asset version", async () => {
     await expect(
       licenseRepository.create(buildLicense({ assetVersion: 0 }))
