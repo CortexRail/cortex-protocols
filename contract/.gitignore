@@ -1,2 +1,23 @@
 target/
+
+# Legacy env file
 deployed_addresses.env
+
+# Keypairs and secrets — NEVER commit
+.stellar/
+
+# Generated deployment artifacts (commit these if you want to share addresses)
+# deployed_addresses.json
+verification_report.json
+
+# Monitoring outputs
+status.json
+alert_log.jsonl
+
+# TypeScript build output
+deploy/dist/
+deploy/node_modules/
+deploy/.env
+
+# Monitoring node_modules
+monitoring/node_modules/

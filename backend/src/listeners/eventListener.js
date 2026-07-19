@@ -1,16 +1,20 @@
 /**
  * Soroban event listener.
  *
- * Polls the RPC for contract events and keeps the off-chain index
- * in sync with on-chain state changes.
+ * Polls the RPC for contract events, appends every raw event to the
+ * `events_log` audit table, and keeps the off-chain index in sync with
+ * on-chain state changes. After a restart it resumes from the highest
+ * ledger recorded in the audit log — no events are silently skipped.
  */
 
 const { rpcServer, CONTRACT_IDS } = require("../config/stellar");
 const { indexAsset, removeAsset } = require("../services/assetService");
 const { registerAgent } = require("../services/agentService");
+const eventLogRepository = require("../repositories/eventLogRepository");
 
-// Track the last processed ledger to avoid re-processing
+// Last processed ledger; hydrated from the database on start.
 let lastLedger = 0;
+let pollErrorCount = 0;
 
 /**
  * Poll for new contract events since lastLedger.
@@ -37,17 +41,33 @@ async function pollEvents() {
     });
 
     for (const event of response.events) {
+      await persistEvent(event);
       await processEvent(event);
       if (event.ledger > lastLedger) {
         lastLedger = event.ledger;
       }
     }
   } catch (err) {
+    pollErrorCount += 1;
     // Log but don't crash — network may be temporarily unavailable
     if (process.env.NODE_ENV !== "test") {
       console.warn("[eventListener] poll error:", err.message);
     }
   }
+}
+
+/**
+ * Append the raw event to the audit log before any interpretation, so the
+ * index can always be rebuilt or replayed from what actually happened.
+ */
+async function persistEvent(event) {
+  await eventLogRepository.append({
+    ledger: event.ledger,
+    contractId: event.contractId,
+    topic: Array.isArray(event.topic) ? event.topic.map(String) : [],
+    payload: { value: event.value ?? null },
+    txHash: event.txHash || null,
+  });
 }
 
 /**
@@ -63,7 +83,7 @@ async function processEvent(event) {
       break;
     }
     case "DELISTED": {
-      removeAsset(event.value);
+      await removeAsset(event.value);
       console.info(`[eventListener] asset delisted: id=${event.value}`);
       break;
     }
@@ -77,18 +97,24 @@ async function processEvent(event) {
 }
 
 /**
- * Start polling at a fixed interval.
+ * Start polling at a fixed interval, resuming from the last ledger the
+ * audit log has seen.
  * @param {number} intervalMs - polling interval in ms (default 5s)
  */
-function startEventListener(intervalMs = 5_000) {
-  console.info("[eventListener] starting — polling every", intervalMs, "ms");
+async function startEventListener(intervalMs = 5_000) {
+  lastLedger = await eventLogRepository.getLastLedger();
+  console.info(
+    `[eventListener] starting — polling every ${intervalMs}ms, resuming from ledger ${lastLedger}`
+  );
   setInterval(pollEvents, intervalMs);
   // Run immediately on start
-  pollEvents();
+  await pollEvents();
 }
 
-module.exports = { startEventListener, pollEvents };
+module.exports = { startEventListener, pollEvents, processEvent };
 
 // Exported for observability
-let pollErrorCount = 0;
 module.exports.getPollErrorCount = () => pollErrorCount;
+
+// referenced by processEvent's LISTED follow-up fetch (future work)
+module.exports._internals = { indexAsset, registerAgent };

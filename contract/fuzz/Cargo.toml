@@ -1,0 +1,39 @@
+[package]
+name = "contract-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+marketplace = { path = "../contracts/marketplace" }
+micropayments = { path = "../contracts/micropayments" }
+soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+
+[[bin]]
+name = "list_asset"
+path = "fuzz_targets/list_asset.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "purchase_license"
+path = "fuzz_targets/purchase_license.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "open_stream"
+path = "fuzz_targets/open_stream.rs"
+test = false
+doc = false
+bench = false
+
+# Keep this cargo-fuzz package independent from the parent contract workspace.
+[workspace]
+members = ["."]
