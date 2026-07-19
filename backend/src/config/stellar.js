@@ -1,4 +1,8 @@
-const { Networks, SorobanRpc, Horizon } = require("@stellar/stellar-sdk");
+const { Networks, SorobanRpc, rpc, Horizon } = require("@stellar/stellar-sdk");
+
+// @stellar/stellar-sdk renamed the `SorobanRpc` namespace to `rpc` in newer
+// 13.x releases; support both so this doesn't break on either version.
+const SorobanRpcNs = SorobanRpc || rpc;
 
 const NETWORK = process.env.STELLAR_NETWORK || "testnet";
 
@@ -33,7 +37,7 @@ const horizonUrl =
   HORIZON_URLS[NETWORK] ||
   HORIZON_URLS.testnet;
 
-const rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: false });
+const rpcServer = new SorobanRpcNs.Server(rpcUrl, { allowHttp: false });
 const horizonServer = new Horizon.Server(horizonUrl);
 
 const CONTRACT_IDS = {
