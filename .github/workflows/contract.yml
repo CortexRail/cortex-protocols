@@ -30,7 +30,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Run cargo test
-        run: cargo test --locked
+        run: cargo test
 
       - name: Run cargo clippy
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy -- -D warnings
