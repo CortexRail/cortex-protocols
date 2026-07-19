@@ -7,6 +7,8 @@ const rateLimit = require("express-rate-limit");
 const assetsRouter = require("./routes/assets");
 const agentsRouter = require("./routes/agents");
 const streamsRouter = require("./routes/streams");
+const licensesRouter = require("./routes/licenses");
+const analyticsRouter = require("./routes/analytics");
 const stellarRouter = require("./routes/stellar");
 const internalRouter = require("./routes/internal");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
@@ -52,6 +54,8 @@ app.get("/health", (_req, res) => {
 app.use("/api/v1/assets", assetsRouter);
 app.use("/api/v1/agents", agentsRouter);
 app.use("/api/v1/streams", streamsRouter);
+app.use("/api/v1/licenses", licensesRouter);
+app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/stellar", stellarRouter);
 app.use("/api/v1/internal", internalRouter);
 
