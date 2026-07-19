@@ -1,12 +1,28 @@
 const { Router } = require("express");
 const { query, param } = require("express-validator");
 const rateLimit = require("express-rate-limit");
+const { MemoryStore } = rateLimit;
 const validate = require("../middleware/validate");
-const { horizonServer, rpcServer, NETWORK, CONTRACT_IDS } = require("../config/stellar");
+const stellarConfig = require("../config/stellar");
+const { horizonServer, rpcServer, NETWORK, CONTRACT_IDS } = stellarConfig;
 const { getAccountTransactions } = require("../services/transactionService");
+const { fundAccount } = require("../services/friendbotService");
 const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
+
+// ── Per-IP rate limiter for the Friendbot funding endpoint ────────────────────
+// 1 request per IP per 60-minute window. The store is kept as a standalone
+// reference so tests can reset it between cases.
+const fundLimiterStore = new MemoryStore();
+const fundRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 1,
+  store: fundLimiterStore,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Only one Friendbot request is allowed per IP per hour. Please try again later." },
+});
 
 // ── Per-key rate limiter for the transactions endpoint ────────────────────────
 // Keyed on the publicKey path param so each Stellar address gets its own quota.
@@ -133,4 +149,40 @@ router.get(
   }
 );
 
+/**
+ * POST /api/v1/stellar/fund
+ *
+ * Funds a Testnet account via Stellar Friendbot, for developer onboarding.
+ *
+ * Body: { "publicKey": "G..." }
+ *
+ * Restrictions:
+ *   - Testnet only — returns 403 when the server is configured for Mainnet.
+ *   - Rate limited to 1 request per IP per hour — returns 429 once exceeded.
+ */
+router.post("/fund", fundRateLimiter, async (req, res, next) => {
+  const { publicKey } = req.body || {};
+
+  if (!publicKey || typeof publicKey !== "string") {
+    return res.status(400).json({ error: "publicKey is required" });
+  }
+  if (!isValidStellarAddress(publicKey)) {
+    return res.status(400).json({ error: "publicKey must be a valid Stellar public key" });
+  }
+
+  if (stellarConfig.NETWORK !== "testnet") {
+    return res.status(403).json({ error: "Friendbot is only available on Stellar Testnet." });
+  }
+
+  try {
+    const result = await fundAccount(publicKey);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
+
+// Exposed so tests can clear the funding rate limiter between cases.
+module.exports.resetFundRateLimiter = () => fundLimiterStore.resetAll();
