@@ -1,9 +1,22 @@
 #![no_std]
 
+mod errors;
+pub use errors::MarketplaceError;
+
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Map, String, Symbol,
-    Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String, Symbol,
 };
+
+// ── Governance Limits ────────────────────────────────────────────────────────
+
+/// Maximum number of assets that can ever be listed in one contract instance.
+pub const MAX_ASSETS: u64 = 10_000;
+
+/// Maximum byte length of an asset name (UTF-8 encoded).
+pub const MAX_NAME_LEN: u32 = 200;
+
+/// Maximum byte length of an asset description (UTF-8 encoded).
+pub const MAX_DESC_LEN: u32 = 2_000;
 
 // ── Storage Keys ────────────────────────────────────────────────────────────
 
@@ -89,6 +102,13 @@ impl MarketplaceContract {
     // ── Asset Management ──────────────────────────────────────────────────
 
     /// List a new intelligence asset on the marketplace.
+    ///
+    /// # Errors
+    /// - [`MarketplaceError::InvalidPrice`]      — `price` must be > 0.
+    /// - [`MarketplaceError::InvalidMetadata`]   — `name` must be 1–200 bytes;
+    ///                                             `description` must be 1–2 000 bytes.
+    /// - [`MarketplaceError::AssetLimitReached`] — contract has already reached
+    ///                                             `MAX_ASSETS` (10 000) listings.
     pub fn list_asset(
         env: Env,
         owner: Address,
@@ -97,14 +117,37 @@ impl MarketplaceContract {
         asset_type: AssetType,
         license: LicenseType,
         price: i128,
-    ) -> u64 {
+    ) -> Result<u64, MarketplaceError> {
         owner.require_auth();
 
+        // ── Guard 1: price must be positive ──────────────────────────────
+        if price <= 0 {
+            return Err(MarketplaceError::InvalidPrice);
+        }
+
+        // ── Guard 2: name length must be 1–200 bytes ─────────────────────
+        let name_len = name.len();
+        if name_len == 0 || name_len > MAX_NAME_LEN {
+            return Err(MarketplaceError::InvalidMetadata);
+        }
+
+        // ── Guard 3: description length must be 1–2 000 bytes ────────────
+        let desc_len = description.len();
+        if desc_len == 0 || desc_len > MAX_DESC_LEN {
+            return Err(MarketplaceError::InvalidMetadata);
+        }
+
+        // ── Guard 4: total asset count must not exceed MAX_ASSETS ─────────
         let count: u64 = env
             .storage()
             .instance()
             .get(&ASSET_COUNT)
             .unwrap_or(0u64);
+
+        if count >= MAX_ASSETS {
+            return Err(MarketplaceError::AssetLimitReached);
+        }
+
         let asset_id = count + 1;
 
         let asset = IntelligenceAsset {
@@ -130,12 +173,9 @@ impl MarketplaceContract {
         env.storage().persistent().set(&ASSETS, &assets);
         env.storage().instance().set(&ASSET_COUNT, &asset_id);
 
-        env.events().publish(
-            (symbol_short!("LISTED"), owner),
-            asset_id,
-        );
+        env.events().publish((symbol_short!("LISTED"), owner), asset_id);
 
-        asset_id
+        Ok(asset_id)
     }
 
     /// Delist / deactivate an asset. Only the owner can do this.
@@ -155,10 +195,7 @@ impl MarketplaceContract {
         assets.set(asset_id, asset);
         env.storage().persistent().set(&ASSETS, &assets);
 
-        env.events().publish(
-            (symbol_short!("DELISTED"), owner),
-            asset_id,
-        );
+        env.events().publish((symbol_short!("DELISTED"), owner), asset_id);
     }
 
     /// Update the price of a listed asset.
@@ -268,6 +305,3 @@ impl MarketplaceContract {
         env.storage().persistent().get(&license_key)
     }
 }
-
-// Note: max 10_000 assets per contract instance (governance limit)
-const MAX_ASSETS: u64 = 10_000;
