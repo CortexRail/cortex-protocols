@@ -69,11 +69,7 @@ impl AgentRegistryContract {
     ) -> u64 {
         owner.require_auth();
 
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&AGENT_CNT)
-            .unwrap_or(0u64);
+        let count: u64 = env.storage().instance().get(&AGENT_CNT).unwrap_or(0u64);
         let agent_id = count + 1;
 
         let agent = Agent {
@@ -129,12 +125,7 @@ impl AgentRegistryContract {
 
     /// Submit a reputation vote for an agent.
     /// Caller must be different from the agent owner.
-    pub fn vote_reputation(
-        env: Env,
-        voter: Address,
-        agent_id: u64,
-        score: u32,
-    ) {
+    pub fn vote_reputation(env: Env, voter: Address, agent_id: u64, score: u32) {
         voter.require_auth();
         assert!(score <= 100, "score must be 0-100");
 
@@ -164,10 +155,8 @@ impl AgentRegistryContract {
         let vote_key = (REP, voter.clone(), agent_id);
         env.storage().persistent().set(&vote_key, &vote);
 
-        env.events().publish(
-            (symbol_short!("VOTED"), voter),
-            (agent_id, score),
-        );
+        env.events()
+            .publish((symbol_short!("VOTED"), voter), (agent_id, score));
     }
 
     /// Record a completed transaction (callable by marketplace contract).
@@ -215,10 +204,7 @@ impl AgentRegistryContract {
     }
 
     pub fn agent_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&AGENT_CNT)
-            .unwrap_or(0u64)
+        env.storage().instance().get(&AGENT_CNT).unwrap_or(0u64)
     }
 
     pub fn get_reputation(env: Env, agent_id: u64) -> u32 {

@@ -6,9 +6,7 @@
 //! continuously (per-second or per-call billing), with deposit/withdrawal and
 //! automatic settlement.
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol};
 
 const STREAMS: Symbol = symbol_short!("STREAMS");
 const STREAM_CNT: Symbol = symbol_short!("S_CNT");
@@ -84,11 +82,7 @@ impl MicropaymentsContract {
         let token_client = soroban_sdk::token::Client::new(&env, &token);
         token_client.transfer(&sender, &env.current_contract_address(), &deposit);
 
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&STREAM_CNT)
-            .unwrap_or(0u64);
+        let count: u64 = env.storage().instance().get(&STREAM_CNT).unwrap_or(0u64);
         let stream_id = count + 1;
         let now = env.ledger().timestamp();
 
@@ -116,10 +110,8 @@ impl MicropaymentsContract {
         env.storage().persistent().set(&STREAMS, &streams);
         env.storage().instance().set(&STREAM_CNT, &stream_id);
 
-        env.events().publish(
-            (symbol_short!("OPENED"), sender),
-            (stream_id, deposit),
-        );
+        env.events()
+            .publish((symbol_short!("OPENED"), sender), (stream_id, deposit));
 
         stream_id
     }
@@ -155,10 +147,8 @@ impl MicropaymentsContract {
         streams.set(stream_id, stream.clone());
         env.storage().persistent().set(&STREAMS, &streams);
 
-        env.events().publish(
-            (symbol_short!("WITHDRAWN"), recipient),
-            (stream_id, amount),
-        );
+        env.events()
+            .publish((symbol_short!("WITHDRAWN"), recipient), (stream_id, amount));
 
         amount
     }
@@ -201,10 +191,8 @@ impl MicropaymentsContract {
         streams.set(stream_id, stream);
         env.storage().persistent().set(&STREAMS, &streams);
 
-        env.events().publish(
-            (symbol_short!("CANCELLED"), sender),
-            stream_id,
-        );
+        env.events()
+            .publish((symbol_short!("CANCELLED"), sender), stream_id);
     }
 
     /// Pause an active stream (sender only).
@@ -270,10 +258,7 @@ impl MicropaymentsContract {
     }
 
     pub fn stream_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&STREAM_CNT)
-            .unwrap_or(0u64)
+        env.storage().instance().get(&STREAM_CNT).unwrap_or(0u64)
     }
 }
 
