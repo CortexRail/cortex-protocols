@@ -40,8 +40,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export function getAssets(signal?: AbortSignal): Promise<AssetListResponse> {
-  return request<AssetListResponse>("/api/v1/assets", { signal });
+export function getAssets(
+  signal?: AbortSignal,
+  filters?: { assetType?: string; page?: number; limit?: number }
+): Promise<AssetListResponse> {
+  const params = new URLSearchParams();
+  if (filters?.assetType) params.append("assetType", filters.assetType);
+  if (filters?.page) params.append("page", String(filters.page));
+  if (filters?.limit) params.append("limit", String(filters.limit));
+
+  const query = params.toString();
+  return request<AssetListResponse>(`/api/v1/assets${query ? `?${query}` : ""}`, { signal });
 }
 
 export function getAsset(id: string, signal?: AbortSignal): Promise<Asset> {
