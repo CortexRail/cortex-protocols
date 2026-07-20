@@ -27,6 +27,7 @@ npm run dev
 | `GET` | `/api/v1/assets` | List intelligence assets |
 | `GET` | `/api/v1/assets/:id` | Get asset by ID |
 | `POST` | `/api/v1/assets` | Index an asset (from event listener) |
+| `POST` | `/api/v1/assets/:id/purchase` | Purchase a license, optionally pinned to an asset version |
 | `GET` | `/api/v1/assets/types/list` | Valid asset/license types |
 | `GET` | `/api/v1/agents` | Discover agents |
 | `GET` | `/api/v1/agents/:id` | Get agent by ID |
@@ -51,47 +52,39 @@ npm run dev
 | `search` | string | Full-text search on name/description/tags |
 | `page` / `limit` | integer | Pagination |
 
-## Stellar Testnet Faucet — `POST /api/v1/stellar/fund`
+## Asset and license versions
 
-Funds a Stellar **Testnet** account via [Friendbot](https://developers.stellar.org/docs/learn/interactive/friendbot) for developer onboarding — no server-side signing key required.
+Every asset response includes:
 
-**This endpoint is Testnet-only.** When `STELLAR_NETWORK` is not `testnet`, it always returns `403` without contacting Friendbot.
+- `version`: the asset's current on-chain version.
+- `availableVersions`: the retained versions that can be purchased. This is
+  the latest five total versions, including the current version. For example,
+  version 1 exposes `[1]`, version 3 exposes `[1, 2, 3]`, and version 7 exposes
+  `[3, 4, 5, 6, 7]`.
 
-It is also rate-limited to **1 request per IP per hour** to prevent abuse of the public faucet.
+Every license response includes `assetVersion`, identifying the asset version
+selected at purchase time. Existing indexed assets and licenses are version 1.
 
-### Request
-
-```http
-POST /api/v1/stellar/fund
-Content-Type: application/json
-
-{
-  "publicKey": "GDQRRTSA2OFYBTJT2Y7BWE5HM5TGQJBSTD2VJKSCOH62SY7TRYLUS24Y"
-}
-```
-
-### Success response — `200 OK`
+To pin a purchase, send an optional integer `assetVersion`:
 
 ```json
 {
-  "publicKey": "GDQRRTSA2OFYBTJT2Y7BWE5HM5TGQJBSTD2VJKSCOH62SY7TRYLUS24Y",
-  "funded": true,
-  "hash": "c123...abc"
+  "buyer": "G...",
+  "assetVersion": 3
 }
 ```
 
-### Error responses
-
-| Status | When | Body |
-|--------|------|------|
-| `400 Bad Request` | `publicKey` missing or not a valid Stellar public key | `{ "error": "publicKey is required" }` |
-| `403 Forbidden` | Server is configured for a non-Testnet network | `{ "error": "Friendbot is only available on Stellar Testnet." }` |
-| `429 Too Many Requests` | More than 1 request from the same IP within an hour | `{ "error": "Only one Friendbot request is allowed per IP per hour. Please try again later." }` |
-| `500 Internal Server Error` | Friendbot is unreachable or rejects the request (e.g. the account already exists) | `{ "error": "Internal Server Error" }` |
+When `assetVersion` is omitted, the current asset version is selected. A
+version is purchasable only when it is no newer than the current version and
+is within the retained range `max(1, version - 4)` through `version`. Purchases
+always use the asset's current price, license type, and active status.
 
 ## Event Listener
 
-`src/listeners/eventListener.js` polls the Soroban RPC for `LISTED`, `DELISTED`, and `REGISTERED` events and keeps the off-chain index in sync. Start it alongside the API:
+`src/listeners/eventListener.js` polls the Soroban RPC for `LISTED`, `UPDATED`,
+`DELISTED`, and `REGISTERED` events and keeps the off-chain index in sync. An
+`UPDATED` event advances `assets.version`; its payload has no description, so
+the listener leaves indexed descriptions unchanged. Start it alongside the API:
 
 ```js
 const { startEventListener } = require("./listeners/eventListener");

@@ -13,11 +13,21 @@ const {
 
 const COLUMNS = `
   id, owner, name, description, asset_type, license_type, price,
-  usage_count, is_active, tags, created_at, indexed_at, updated_at, deleted_at
+  version, usage_count, is_active, tags, created_at, indexed_at, updated_at,
+  deleted_at
 `;
+
+function availableVersions(version) {
+  const minimumVersion = Math.max(1, version - 4);
+  return Array.from(
+    { length: version - minimumVersion + 1 },
+    (_, index) => minimumVersion + index
+  );
+}
 
 function mapAsset(row) {
   if (!row) return null;
+  const version = Number(row.version);
   return {
     id: row.id,
     owner: row.owner,
@@ -26,6 +36,8 @@ function mapAsset(row) {
     assetType: row.asset_type,
     licenseType: row.license_type,
     price: row.price,
+    version,
+    availableVersions: availableVersions(version),
     usageCount: row.usage_count,
     isActive: row.is_active,
     tags: row.tags,
@@ -41,6 +53,7 @@ function mapAsset(row) {
  * refreshes every mutable field plus indexed_at.
  */
 async function create(asset, client) {
+  const hasVersion = asset.version !== undefined;
   const {
     id,
     owner,
@@ -49,6 +62,7 @@ async function create(asset, client) {
     assetType,
     licenseType,
     price = 0,
+    version = 1,
     usageCount = 0,
     isActive = true,
     tags = [],
@@ -57,11 +71,11 @@ async function create(asset, client) {
 
   const { rows } = await run(
     `INSERT INTO assets
-       (id, owner, name, description, asset_type, license_type, price,
+       (id, owner, name, description, asset_type, license_type, price, version,
         usage_count, is_active, tags, created_at)
      VALUES
-       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
-        COALESCE(to_timestamp($11::double precision / 1000.0), now()))
+       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
+        COALESCE(to_timestamp($12::double precision / 1000.0), now()))
      ON CONFLICT (id) DO UPDATE SET
        owner        = EXCLUDED.owner,
        name         = EXCLUDED.name,
@@ -69,6 +83,7 @@ async function create(asset, client) {
        asset_type   = EXCLUDED.asset_type,
        license_type = EXCLUDED.license_type,
        price        = EXCLUDED.price,
+       version      = CASE WHEN $13 THEN EXCLUDED.version ELSE assets.version END,
        usage_count  = EXCLUDED.usage_count,
        is_active    = EXCLUDED.is_active,
        tags         = EXCLUDED.tags,
@@ -83,10 +98,12 @@ async function create(asset, client) {
       assetType,
       licenseType,
       price,
+      version,
       usageCount,
       isActive,
       JSON.stringify(tags),
       msParam(createdAt),
+      hasVersion,
     ],
     client
   );
@@ -282,6 +299,23 @@ async function incrementUsage(id, client) {
   return rows.length ? rows[0].usage_count : null;
 }
 
+/**
+ * Advance an indexed asset to the version observed in an UPDATED event.
+ * GREATEST prevents a replayed or out-of-order event from regressing the
+ * current version. Returns null when the asset has not been indexed yet.
+ */
+async function updateVersion(id, version, client) {
+  const { rows } = await run(
+    `UPDATE assets
+     SET version = GREATEST(version, $2), updated_at = now()
+     WHERE id = $1
+     RETURNING ${COLUMNS}`,
+    [id, version],
+    client
+  );
+  return mapAsset(rows[0]);
+}
+
 module.exports = {
   create,
   findById,
@@ -290,4 +324,5 @@ module.exports = {
   update,
   softDelete,
   incrementUsage,
+  updateVersion,
 };

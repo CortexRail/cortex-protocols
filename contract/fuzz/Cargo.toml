@@ -28,6 +28,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "publish_update"
+path = "fuzz_targets/publish_update.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "open_stream"
 path = "fuzz_targets/open_stream.rs"
 test = false

@@ -1,19 +1,16 @@
 const { Router } = require("express");
 const requireAdmin = require("../middleware/requireAdmin");
-const { healthCheck, getPoolStats } = require("../db/connection");
+const { getPoolStats, healthCheck } = require("../db/connection");
 
 const router = Router();
 
-/**
- * GET /api/v1/internal/db-stats
- * Admin-only operational endpoint: connection pool utilization and a
- * database health probe. Guarded by requireAdmin (x-admin-key header).
- */
 router.get("/db-stats", requireAdmin, async (_req, res, next) => {
   try {
-    const [database, pool] = [await healthCheck(), getPoolStats()];
-    res.json({
-      pool,
+    const database = await healthCheck();
+    const status = database.healthy ? 200 : 503;
+
+    res.status(status).json({
+      pool: getPoolStats(),
       database,
       timestamp: new Date().toISOString(),
     });

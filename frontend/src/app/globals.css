@@ -8,10 +8,14 @@
   --border: #27272a;
 }
 
+/*
+ * Only reset box-sizing here. Tailwind v4's Preflight (in @layer base) already
+ * zeroes default margins/padding; resetting them again in an *unlayered* rule
+ * would override every layered margin/padding utility (mx-auto, px-*, space-y-*),
+ * which broke page centering and spacing app-wide.
+ */
 * {
   box-sizing: border-box;
-  padding: 0;
-  margin: 0;
 }
 
 html,

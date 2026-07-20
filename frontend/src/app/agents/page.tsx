@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 interface Agent {
@@ -50,12 +50,7 @@ export default function AgentsPage() {
   const [sortBy, setSortBy] = useState("reputation");
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    fetchAgents();
-  }, [search, selectedCapabilities, sortBy, page]);
-
-  async function fetchAgents() {
-    setLoading(true);
+  const fetchAgents = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (search) params.append("search", search);
@@ -67,13 +62,26 @@ export default function AgentsPage() {
 
       const res = await fetch(`http://localhost:4000/api/v1/agents?${params}`);
       const data: ListResponse = await res.json();
-      setAgents(data.data || []);
+      return data.data || [];
     } catch (err) {
       console.error("Failed to fetch agents:", err);
-    } finally {
-      setLoading(false);
+      return [];
     }
-  }
+  }, [page, search, selectedCapabilities]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchAgents().then((nextAgents) => {
+      if (cancelled) return;
+      setAgents(nextAgents);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchAgents]);
 
   function getReputationColor(rep: number) {
     const pct = rep / 100;
@@ -90,6 +98,7 @@ export default function AgentsPage() {
   }
 
   const toggleCapability = (cap: string) => {
+    setLoading(true);
     setSelectedCapabilities((prev) =>
       prev.includes(cap) ? prev.filter((c) => c !== cap) : [cap]
     );
@@ -121,6 +130,7 @@ export default function AgentsPage() {
               placeholder="Search by name or description..."
               value={search}
               onChange={(e) => {
+                setLoading(true);
                 setSearch(e.target.value);
                 setPage(1);
               }}
@@ -159,7 +169,10 @@ export default function AgentsPage() {
               </label>
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
+                onChange={(e) => {
+                  setLoading(true);
+                  setSortBy(e.target.value);
+                }}
                 className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-purple-500"
               >
                 {SORT_OPTIONS.map((opt) => (
@@ -248,7 +261,10 @@ export default function AgentsPage() {
             {/* Pagination */}
             <div className="flex justify-center gap-2 mb-12">
               <button
-                onClick={() => setPage(Math.max(1, page - 1))}
+                onClick={() => {
+                  setLoading(true);
+                  setPage(Math.max(1, page - 1));
+                }}
                 disabled={page === 1}
                 className="px-3 py-1 text-sm bg-zinc-900 border border-zinc-800 rounded disabled:opacity-50"
               >
@@ -258,7 +274,10 @@ export default function AgentsPage() {
                 Page {page}
               </span>
               <button
-                onClick={() => setPage(page + 1)}
+                onClick={() => {
+                  setLoading(true);
+                  setPage(page + 1);
+                }}
                 className="px-3 py-1 text-sm bg-zinc-900 border border-zinc-800 rounded hover:border-purple-500"
               >
                 Next →

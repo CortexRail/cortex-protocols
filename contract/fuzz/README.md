@@ -16,11 +16,13 @@ Run all commands below from `contract/fuzz`.
 
 ## Targets and 30-minute runs
 
-The available targets are `list_asset`, `purchase_license`, and `open_stream`.
+The available targets are `list_asset`, `purchase_license`, `publish_update`,
+and `open_stream`.
 
 ```bash
 cargo +nightly fuzz run list_asset -- -max_total_time=1800
 cargo +nightly fuzz run purchase_license -- -max_total_time=1800
+cargo +nightly fuzz run publish_update -- -max_total_time=1800
 cargo +nightly fuzz run open_stream -- -max_total_time=1800
 ```
 
@@ -51,6 +53,10 @@ The `list_asset` harness covers representative empty, short, boundary-sized,
 medium, and large strings. The marketplace currently defines no
 application-level maximum name or description length, so these cases exercise
 useful boundaries without claiming they are production limits.
+
+The `publish_update` harness mixes authorized, unauthorized, existing, and
+missing-asset updates. It verifies successful version increments, rollback on
+rejection, current-description consistency, and the five-version history bound.
 
 ## Completed runs
 

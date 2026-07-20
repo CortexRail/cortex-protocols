@@ -1,5 +1,25 @@
+const fs = require("fs");
+const path = require("path");
 const { migrate, status, listMigrationFiles } = require("../../db/migrate");
-const { query, closePool } = require("../../db/connection");
+const { query, getClient, closePool } = require("../../db/connection");
+
+const versionMigration = fs.readFileSync(
+  path.join(
+    __dirname,
+    "../../db/migrations/007_add_asset_versions.sql"
+  ),
+  "utf8"
+);
+
+async function createLegacyVersionTables(client) {
+  await client.query("CREATE TEMP TABLE assets (id INTEGER PRIMARY KEY)");
+  await client.query(
+    "CREATE TEMP TABLE licenses (id INTEGER PRIMARY KEY, asset_id INTEGER)"
+  );
+  await client.query("INSERT INTO assets (id) VALUES (1)");
+  await client.query("INSERT INTO licenses (id, asset_id) VALUES (1, 1)");
+  await client.query(versionMigration);
+}
 
 afterAll(async () => {
   await closePool();
@@ -59,5 +79,87 @@ describe("migration runner", () => {
     const indexes = rows.map((r) => r.indexname);
     expect(indexes).toContain("idx_assets_search");
     expect(indexes).toContain("idx_assets_tags");
+  });
+
+  it("backfills existing assets and licenses to version 1", async () => {
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+      await createLegacyVersionTables(client);
+      const assetResult = await client.query("SELECT version FROM assets");
+      const licenseResult = await client.query(
+        "SELECT asset_version FROM licenses"
+      );
+      expect(assetResult.rows[0].version).toBe(1);
+      expect(licenseResult.rows[0].asset_version).toBe(1);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
+
+  it.each([
+    ["assets", "version"],
+    ["licenses", "asset_version"],
+  ])("uses BIGINT for %s.%s", async (table, column) => {
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+      await createLegacyVersionTables(client);
+      const { rows } = await client.query(
+        `SELECT data_type FROM information_schema.columns
+         WHERE table_schema LIKE 'pg_temp_%'
+           AND table_name = $1
+           AND column_name = $2`,
+        [table, column]
+      );
+      expect(rows[0].data_type).toBe("bigint");
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
+
+  it.each([
+    ["assets", "version"],
+    ["licenses", "asset_version"],
+  ])(
+    "accepts u32 values above INTEGER range for %s.%s",
+    async (table, column) => {
+      const client = await getClient();
+      try {
+        await client.query("BEGIN");
+        await createLegacyVersionTables(client);
+        await expect(
+          client.query(`UPDATE ${table} SET ${column} = $1`, [3_000_000_000])
+        ).resolves.toBeDefined();
+        const { rows } = await client.query(
+          `SELECT ${column} AS version FROM ${table}`
+        );
+        expect(Number(rows[0].version)).toBe(3_000_000_000);
+      } finally {
+        await client.query("ROLLBACK");
+        client.release();
+      }
+    }
+  );
+
+  it.each([
+    ["assets", "version", 0],
+    ["assets", "version", -1],
+    ["licenses", "asset_version", 0],
+    ["licenses", "asset_version", -1],
+  ])("rejects %s.%s value %i", async (table, column, value) => {
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+      await createLegacyVersionTables(client);
+      await expect(
+        client.query(`UPDATE ${table} SET ${column} = $1`, [value])
+      ).rejects.toThrow();
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
   });
 });

@@ -1,10 +1,18 @@
 const { Router } = require("express");
-const { query, param } = require("express-validator");
+const { body, query, param } = require("express-validator");
 const rateLimit = require("express-rate-limit");
 const { MemoryStore } = rateLimit;
 const validate = require("../middleware/validate");
-const stellarConfig = require("../config/stellar");
-const { horizonServer, rpcServer, NETWORK, CONTRACT_IDS } = stellarConfig;
+const { horizonServer, NETWORK, CONTRACT_IDS } = require("../config/stellar");
+const {
+  ASSET_TYPES,
+  LICENSE_TYPES,
+  indexAsset,
+} = require("../services/assetService");
+const {
+  buildListAssetTx,
+  submitSignedTx,
+} = require("../services/listingService");
 const { getAccountTransactions } = require("../services/transactionService");
 const { fundAccount } = require("../services/friendbotService");
 const { isValidStellarAddress } = require("../utils/stellar");
@@ -149,38 +157,86 @@ router.get(
   }
 );
 
+// ── Asset listing (Freighter-signed flow) ─────────────────────────────────────
+
+// Shared validators mirroring the on-chain marketplace rules. `price` is in
+// stroops and is kept as a string end-to-end to avoid precision loss.
+const listingBodyRules = [
+  body("owner").isString().trim().isLength({ min: 56, max: 56 }),
+  body("name").isString().trim().isLength({ min: 1, max: 200 }),
+  body("description").isString().trim().isLength({ min: 1, max: 2000 }),
+  body("assetType").isIn(ASSET_TYPES),
+  body("licenseType").isIn(LICENSE_TYPES),
+  body("price").isInt({ min: 1 }), // stroops; must be > 0 (InvalidPrice)
+];
+
 /**
- * POST /api/v1/stellar/fund
- *
- * Funds a Testnet account via Stellar Friendbot, for developer onboarding.
- *
- * Body: { "publicKey": "G..." }
- *
- * Restrictions:
- *   - Testnet only — returns 403 when the server is configured for Mainnet.
- *   - Rate limited to 1 request per IP per hour — returns 429 once exceeded.
+ * POST /api/v1/stellar/list-asset/build
+ * Build & simulate an unsigned `list_asset` transaction for the frontend to
+ * sign with Freighter. Contract rejections (e.g. InvalidPrice) surface here.
  */
-router.post("/fund", fundRateLimiter, async (req, res, next) => {
-  const { publicKey } = req.body || {};
-
-  if (!publicKey || typeof publicKey !== "string") {
-    return res.status(400).json({ error: "publicKey is required" });
-  }
-  if (!isValidStellarAddress(publicKey)) {
-    return res.status(400).json({ error: "publicKey must be a valid Stellar public key" });
-  }
-
-  if (stellarConfig.NETWORK !== "testnet") {
-    return res.status(403).json({ error: "Friendbot is only available on Stellar Testnet." });
-  }
-
+router.post("/list-asset/build", listingBodyRules, validate, async (req, res, next) => {
   try {
-    const result = await fundAccount(publicKey);
+    const { owner, name, description, assetType, licenseType, price } = req.body;
+    const result = await buildListAssetTx({
+      owner,
+      name: name.trim(),
+      description: description.trim(),
+      assetType,
+      licenseType,
+      price: String(price),
+    });
     res.json(result);
   } catch (err) {
+    // Surface deliberately-thrown, client-safe errors (contract rejections,
+    // unconfigured contract, RPC failures) with their message + optional code.
+    if (err.status) {
+      return res
+        .status(err.status)
+        .json({ error: err.message, ...(err.code && { code: err.code }) });
+    }
     next(err);
   }
 });
+
+/**
+ * POST /api/v1/stellar/list-asset/submit
+ * Submit the Freighter-signed transaction, wait for confirmation, index the
+ * new asset, and return its on-chain id so the client can redirect.
+ */
+router.post(
+  "/list-asset/submit",
+  [body("signedXdr").isString().isLength({ min: 1 }), ...listingBodyRules],
+  validate,
+  async (req, res, next) => {
+    try {
+      const { signedXdr, owner, name, description, assetType, licenseType, price } = req.body;
+      const { hash, assetId } = await submitSignedTx(signedXdr);
+
+      let asset = null;
+      if (assetId != null) {
+        asset = indexAsset({
+          id: assetId,
+          owner,
+          name: name.trim(),
+          description: description.trim(),
+          assetType,
+          licenseType,
+          price: Number(price),
+        });
+      }
+
+      res.status(201).json({ hash, id: assetId, asset });
+    } catch (err) {
+      if (err.status) {
+        return res
+          .status(err.status)
+          .json({ error: err.message, ...(err.code && { code: err.code }) });
+      }
+      next(err);
+    }
+  }
+);
 
 module.exports = router;
 

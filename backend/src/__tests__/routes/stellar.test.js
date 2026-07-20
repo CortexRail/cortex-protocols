@@ -18,11 +18,6 @@ const stellarConfig = require("../../config/stellar");
 // We need to mock before the module cache loads the real horizonServer.
 // Jest hoists jest.mock() calls automatically.
 jest.mock("../../config/stellar", () => {
-  const buildOpsCall = (ops) => ({
-    call: jest.fn().mockResolvedValue({ records: ops }),
-    limit: jest.fn().mockReturnThis(),
-  });
-
   const mockHorizonServer = {
     loadAccount: jest.fn(),
     feeStats: jest.fn(),

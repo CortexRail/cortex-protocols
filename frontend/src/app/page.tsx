@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-6">
@@ -60,12 +62,12 @@ export default function Home() {
           >
             View on GitHub
           </a>
-          <a
+          <Link
             href="/marketplace"
             className="px-6 py-3 border border-zinc-700 text-white font-semibold rounded-lg hover:border-zinc-500 transition-colors"
           >
             Explore Marketplace
-          </a>
+          </Link>
         </div>
       </div>
     </main>

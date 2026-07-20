@@ -1,11 +1,33 @@
 const request = require("supertest");
 const app = require("../app");
 const { seed } = require("../db/seed");
-const { truncateAll, closePool, OWNER_B } = require("./helpers/testDb");
+const assetRepository = require("../repositories/assetRepository");
+const licenseRepository = require("../repositories/licenseRepository");
+const {
+  truncateAll,
+  closePool,
+  OWNER_A,
+  OWNER_B,
+} = require("./helpers/testDb");
 
 // Right length (56 chars), right "G" prefix, but an invalid checksum.
 const BAD_CHECKSUM_KEY =
   "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
+function createVersionedAsset(id, overrides = {}) {
+  return assetRepository.create({
+    id,
+    owner: OWNER_A,
+    name: `Versioned asset ${id}`,
+    description: "Version-aware purchase fixture.",
+    assetType: "Prompt",
+    licenseType: "UsageBased",
+    price: 765_432,
+    version: 7,
+    tags: ["versioned"],
+    ...overrides,
+  });
+}
 
 beforeAll(async () => {
   await truncateAll();
@@ -23,6 +45,10 @@ describe("GET /api/v1/assets", () => {
     expect(res.body).toHaveProperty("meta");
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data.length).toBeGreaterThan(0);
+    res.body.data.forEach((asset) => {
+      expect(asset.version).toBe(1);
+      expect(asset.availableVersions).toEqual([1]);
+    });
   });
 
   it("filters by assetType", async () => {
@@ -70,6 +96,8 @@ describe("GET /api/v1/assets/:id", () => {
   it("returns an asset by id", async () => {
     const res = await request(app).get("/api/v1/assets/1").expect(200);
     expect(res.body.id).toBe(1);
+    expect(res.body.version).toBe(1);
+    expect(res.body.availableVersions).toEqual([1]);
   });
 
   it("returns 404 for unknown id", async () => {
@@ -87,6 +115,7 @@ describe("POST /api/v1/assets", () => {
       assetType: "Dataset",
       licenseType: "OpenSource",
       price: 0,
+      version: 3,
       tags: ["persistence", "postgres"],
     };
 
@@ -95,6 +124,8 @@ describe("POST /api/v1/assets", () => {
       .send(payload)
       .expect(201);
     expect(created.body.id).toBe(900);
+    expect(created.body.version).toBe(3);
+    expect(created.body.availableVersions).toEqual([1, 2, 3]);
 
     const fetched = await request(app).get("/api/v1/assets/900").expect(200);
     expect(fetched.body.name).toBe("Persistence Test Asset");
@@ -168,6 +199,77 @@ describe("POST /api/v1/assets/:id/purchase", () => {
       .expect(422);
 
     expect(res.body.details.some((d) => d.path === "buyer")).toBe(true);
+  });
+
+  it("defaults an omitted assetVersion to the current version", async () => {
+    const asset = await createVersionedAsset(920);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B })
+      .expect(201);
+
+    expect(res.body.license.assetVersion).toBe(7);
+  });
+
+  it("purchases the current version explicitly", async () => {
+    const asset = await createVersionedAsset(921);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 7 })
+      .expect(201);
+
+    expect(res.body.license.assetVersion).toBe(7);
+  });
+
+  it("purchases a retained historical version using current terms", async () => {
+    const asset = await createVersionedAsset(922, {
+      licenseType: "Subscription",
+      price: 8_765_432,
+    });
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 3 })
+      .expect(201);
+
+    expect(res.body.license.assetVersion).toBe(3);
+    expect(res.body.license.pricePaid).toBe(8_765_432);
+    expect(res.body.license.licenseType).toBe("Subscription");
+
+    const stored = await licenseRepository.findByBuyerAndAsset(
+      OWNER_B,
+      asset.id
+    );
+    expect(stored.assetVersion).toBe(3);
+  });
+
+  it.each([
+    [0, "zero"],
+    [-1, "negative"],
+    [1.5, "non-integer number"],
+    ["3", "numeric string"],
+  ])("rejects %s as a %s assetVersion", async (assetVersion) => {
+    await request(app)
+      .post("/api/v1/assets/923/purchase")
+      .send({ buyer: OWNER_B, assetVersion })
+      .expect(422);
+  });
+
+  it("rejects a future asset version", async () => {
+    const asset = await createVersionedAsset(924);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 8 })
+      .expect(400);
+    expect(res.body.error).toMatch(/newer than current/i);
+  });
+
+  it("rejects an evicted asset version", async () => {
+    const asset = await createVersionedAsset(925);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 2 })
+      .expect(400);
+    expect(res.body.error).toMatch(/unavailable/i);
   });
 });
 

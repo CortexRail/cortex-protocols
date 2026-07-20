@@ -2,11 +2,8 @@ const {
   Contract,
   TransactionBuilder,
   BASE_FEE,
-  nativeToScVal,
+  rpc,
   scValToNative,
-  Keypair,
-  Operation,
-  xdr,
 } = require("@stellar/stellar-sdk");
 
 const { rpcServer, networkPassphrase, horizonServer } = require("../config/stellar");
@@ -42,7 +39,7 @@ async function invokeContract(contractId, method, args, signerKeypair) {
 
   const simResult = await rpcServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
+  if (rpc.Api.isSimulationError(simResult)) {
     throw new Error(`Simulation failed: ${simResult.error}`);
   }
 
@@ -94,7 +91,7 @@ async function viewContract(contractId, method, args, callerPublicKey) {
 
   const simResult = await rpcServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
+  if (rpc.Api.isSimulationError(simResult)) {
     throw new Error(`View call failed: ${simResult.error}`);
   }
 

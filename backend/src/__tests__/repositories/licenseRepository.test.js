@@ -22,6 +22,7 @@ afterAll(async () => {
 function buildLicense(overrides = {}) {
   return {
     assetId: asset.id,
+    assetVersion: asset.version,
     buyer: OWNER_B,
     licenseType: "UsageBased",
     pricePaid: 500_000,
@@ -37,6 +38,7 @@ describe("licenseRepository.create", () => {
 
     expect(license.id).toBeGreaterThan(0);
     expect(license.assetId).toBe(asset.id);
+    expect(license.assetVersion).toBe(1);
     expect(license.buyer).toBe(OWNER_B);
     expect(license.licenseType).toBe("UsageBased");
     expect(license.pricePaid).toBe(500_000);
@@ -76,6 +78,28 @@ describe("licenseRepository.create", () => {
   it("enforces the FK to assets", async () => {
     await expect(
       licenseRepository.create(buildLicense({ assetId: 987_654 }))
+    ).rejects.toThrow();
+  });
+
+  it("stores a pinned asset version", async () => {
+    const license = await licenseRepository.create(
+      buildLicense({ assetVersion: 3 })
+    );
+    expect(license.assetVersion).toBe(3);
+  });
+
+  it("maps a u32 asset version above INTEGER range as a number", async () => {
+    const license = await licenseRepository.create(
+      buildLicense({ assetVersion: 3_000_000_000 })
+    );
+
+    expect(license.assetVersion).toBe(3_000_000_000);
+    expect(typeof license.assetVersion).toBe("number");
+  });
+
+  it("rejects an invalid asset version", async () => {
+    await expect(
+      licenseRepository.create(buildLicense({ assetVersion: 0 }))
     ).rejects.toThrow();
   });
 });
