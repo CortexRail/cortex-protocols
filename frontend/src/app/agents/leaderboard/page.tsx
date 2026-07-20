@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 interface Agent {
@@ -24,37 +24,47 @@ interface LeaderboardResponse {
   };
 }
 
-const TABS = [
+type LeaderboardTab = "reputation" | "activity" | "earnings";
+
+const TABS: Array<{ id: LeaderboardTab; label: string; icon: string }> = [
   { id: "reputation", label: "Top Reputation", icon: "⭐" },
   { id: "activity", label: "Most Active", icon: "🔥" },
   { id: "earnings", label: "Highest Earnings", icon: "💰" },
 ];
 
 export default function LeaderboardPage() {
-  const [activeTab, setActiveTab] = useState<"reputation" | "activity" | "earnings">("reputation");
+  const [activeTab, setActiveTab] = useState<LeaderboardTab>("reputation");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchLeaderboard();
-  }, [activeTab]);
-
-  async function fetchLeaderboard() {
-    setLoading(true);
+  const fetchLeaderboard = useCallback(async () => {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/leaderboard?sortBy=${activeTab}&limit=20`
       );
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
-        setAgents(data.data || []);
+        return data.data || [];
       }
     } catch (err) {
       console.error("Failed to fetch leaderboard:", err);
-    } finally {
-      setLoading(false);
     }
-  }
+    return [];
+  }, [activeTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchLeaderboard().then((nextAgents) => {
+      if (cancelled) return;
+      setAgents(nextAgents);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchLeaderboard]);
 
   function getMetricValue(agent: Agent, tab: string) {
     if (tab === "reputation") return `${Math.round(agent.reputation / 100)}%`;
@@ -92,7 +102,10 @@ export default function LeaderboardPage() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => {
+                setLoading(true);
+                setActiveTab(tab.id);
+              }}
               className={`px-6 py-4 font-semibold text-sm border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? "border-purple-500 text-white"

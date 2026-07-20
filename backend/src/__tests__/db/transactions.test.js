@@ -98,6 +98,7 @@ describe("licenseService.purchaseLicense (multi-table transaction)", () => {
     });
 
     expect(license.assetId).toBe(asset.id);
+    expect(license.assetVersion).toBe(asset.version);
     expect(license.buyer).toBe(OWNER_B);
     expect(usageCount).toBe(11);
 
@@ -158,5 +159,39 @@ describe("licenseService.purchaseLicense (multi-table transaction)", () => {
     });
     expect(unlimited.callsRemaining).toBeNull();
     expect(unlimited.expiresAt).toBeNull();
+  });
+
+  it("stores a retained historical version while using current terms", async () => {
+    const asset = await assetRepository.create(
+      buildAsset({ version: 7, licenseType: "UsageBased", price: 654_321 })
+    );
+    const { license } = await licenseService.purchaseLicense({
+      assetId: asset.id,
+      buyer: OWNER_B,
+      assetVersion: 3,
+    });
+
+    expect(license.assetVersion).toBe(3);
+    expect(license.pricePaid).toBe(654_321);
+    expect(license.licenseType).toBe("UsageBased");
+  });
+
+  it.each([
+    [0, /positive integer/i],
+    [-1, /positive integer/i],
+    [1.5, /positive integer/i],
+    [8, /newer than current/i],
+    [2, /unavailable/i],
+  ])("rejects unavailable requested version %s", async (assetVersion, message) => {
+    const asset = await assetRepository.create(buildAsset({ version: 7 }));
+    await expect(
+      licenseService.purchaseLicense({
+        assetId: asset.id,
+        buyer: OWNER_B,
+        assetVersion,
+      })
+    ).rejects.toThrow(message);
+
+    expect((await assetRepository.findById(asset.id)).usageCount).toBe(0);
   });
 });

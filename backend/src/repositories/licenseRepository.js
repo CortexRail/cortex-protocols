@@ -5,7 +5,7 @@
 const { run, toMs, msParam, normalizePagination, buildMeta } = require("./repoUtils");
 
 const COLUMNS = `
-  id, asset_id, buyer, license_type, price_paid, calls_remaining,
+  id, asset_id, asset_version, buyer, license_type, price_paid, calls_remaining,
   expires_at, is_active, purchased_at, updated_at
 `;
 
@@ -14,6 +14,7 @@ function mapLicense(row) {
   return {
     id: row.id,
     assetId: row.asset_id,
+    assetVersion: Number(row.asset_version),
     buyer: row.buyer,
     licenseType: row.license_type,
     pricePaid: row.price_paid,
@@ -32,6 +33,7 @@ function mapLicense(row) {
 async function create(license, client) {
   const {
     assetId,
+    assetVersion = 1,
     buyer,
     licenseType,
     pricePaid = 0,
@@ -41,11 +43,21 @@ async function create(license, client) {
 
   const { rows } = await run(
     `INSERT INTO licenses
-       (asset_id, buyer, license_type, price_paid, calls_remaining, expires_at)
+       (asset_id, asset_version, buyer, license_type, price_paid,
+        calls_remaining, expires_at)
      VALUES
-       ($1, $2, $3, $4, $5, to_timestamp($6::double precision / 1000.0))
+       ($1, $2, $3, $4, $5, $6,
+        to_timestamp($7::double precision / 1000.0))
      RETURNING ${COLUMNS}`,
-    [assetId, buyer, licenseType, pricePaid, callsRemaining, msParam(expiresAt)],
+    [
+      assetId,
+      assetVersion,
+      buyer,
+      licenseType,
+      pricePaid,
+      callsRemaining,
+      msParam(expiresAt),
+    ],
     client
   );
   return mapLicense(rows[0]);

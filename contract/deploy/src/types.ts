@@ -33,10 +33,12 @@ export interface IntelligenceAsset {
   usage_count: bigint;
   is_active: boolean;
   created_at: bigint;
+  version: number;
 }
 
 export interface License {
   asset_id: bigint;
+  asset_version: number;
   buyer: string;
   license_type: LicenseType;
   purchased_at: bigint;

@@ -16,15 +16,24 @@ const CAPABILITIES = [
 
 type Step = 1 | 2 | 3 | 4;
 
+interface RegistrationForm {
+  name: string;
+  description: string;
+  capabilities: string[];
+}
+
 export default function RegisterAgentPage() {
   const [step, setStep] = useState<Step>(1);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<RegistrationForm>({
     name: "",
     description: "",
-    capabilities: [] as string[],
+    capabilities: [],
   });
 
-  const updateForm = (field: string, value: any) => {
+  const updateForm = <Field extends keyof RegistrationForm>(
+    field: Field,
+    value: RegistrationForm[Field]
+  ) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -215,7 +224,7 @@ export default function RegisterAgentPage() {
               <div className="p-6 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                 <h3 className="font-semibold mb-2">Ready to Register</h3>
                 <p className="text-sm text-zinc-300 mb-4">
-                  You'll be asked to sign the transaction with your Freighter wallet.
+                  You&apos;ll be asked to sign the transaction with your Freighter wallet.
                 </p>
               </div>
 
