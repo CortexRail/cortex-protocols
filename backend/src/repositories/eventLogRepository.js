@@ -7,7 +7,7 @@
 
 const { run, toMs } = require("./repoUtils");
 
-const COLUMNS = "id, ledger, contract_id, topic, payload, tx_hash, ingested_at";
+const COLUMNS = "id, ledger, contract_id, topic, payload, tx_hash, event_index, ingested_at";
 
 function mapEvent(row) {
   if (!row) return null;
@@ -18,6 +18,7 @@ function mapEvent(row) {
     topic: row.topic,
     payload: row.payload,
     txHash: row.tx_hash,
+    eventIndex: row.event_index,
     ingestedAt: toMs(row.ingested_at),
   };
 }
@@ -26,13 +27,20 @@ function mapEvent(row) {
  * Append one raw event.
  */
 async function append(event, client) {
-  const { ledger, contractId, topic = [], payload = {}, txHash = null } = event;
+  const {
+    ledger,
+    contractId,
+    topic = [],
+    payload = {},
+    txHash = "",
+    eventIndex = 0,
+  } = event;
 
   const { rows } = await run(
-    `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash)
-     VALUES ($1, $2, $3::text[], $4::jsonb, $5)
+    `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash, event_index)
+     VALUES ($1, $2, $3::text[], $4::jsonb, $5, $6)
      RETURNING ${COLUMNS}`,
-    [ledger, contractId, topic, JSON.stringify(payload), txHash],
+    [ledger, contractId, topic, JSON.stringify(payload), txHash || "", eventIndex],
     client
   );
   return mapEvent(rows[0]);
@@ -68,6 +76,20 @@ async function findByContractAndTopic(contractId, topic, { limit = 100 } = {}, c
   return rows.map(mapEvent);
 }
 
+async function findByUniqueEvent(contractId, ledger, txHash, eventIndex, client) {
+  const { rows } = await run(
+    `SELECT ${COLUMNS} FROM events_log
+     WHERE contract_id = $1
+       AND ledger = $2
+       AND COALESCE(tx_hash, '') = $3
+       AND event_index = $4
+     LIMIT 1`,
+    [contractId, ledger, txHash || "", eventIndex],
+    client
+  );
+  return rows.map(mapEvent);
+}
+
 /**
  * Highest ledger seen so far (0 when the log is empty) — the event
  * listener resumes from here after a restart.
@@ -81,4 +103,10 @@ async function getLastLedger(client) {
   return Number(rows[0].last_ledger);
 }
 
-module.exports = { append, findSince, findByContractAndTopic, getLastLedger };
+module.exports = {
+  append,
+  findSince,
+  findByContractAndTopic,
+  findByUniqueEvent,
+  getLastLedger,
+};

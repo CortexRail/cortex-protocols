@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const requireAdmin = require("../middleware/requireAdmin");
 const { getPoolStats, healthCheck } = require("../db/connection");
+const { getMetrics, getDeadLetters, getStatus } = require("../pipeline/EventPipeline");
 
 const router = Router();
 
@@ -14,6 +15,22 @@ router.get("/db-stats", requireAdmin, async (_req, res, next) => {
       database,
       timestamp: new Date().toISOString(),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/pipeline-metrics", requireAdmin, async (_req, res, next) => {
+  try {
+    res.json(getMetrics());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/dead-letters", requireAdmin, async (_req, res, next) => {
+  try {
+    res.json({ deadLetters: getDeadLetters(), status: getStatus() });
   } catch (err) {
     next(err);
   }
