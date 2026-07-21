@@ -66,6 +66,7 @@ http://localhost:3000
 | `npm run build` | Create a production build |
 | `npm run start` | Start the production server |
 | `npm run lint` | Run ESLint |
+| `npm test` | Run component tests (Jest + React Testing Library) |
 
 ---
 

@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const { body, query, param } = require("express-validator");
 const rateLimit = require("express-rate-limit");
+const { MemoryStore } = rateLimit;
 const validate = require("../middleware/validate");
 const { horizonServer, NETWORK, CONTRACT_IDS } = require("../config/stellar");
 const {
@@ -13,9 +14,23 @@ const {
   submitSignedTx,
 } = require("../services/listingService");
 const { getAccountTransactions } = require("../services/transactionService");
+const { fundAccount } = require("../services/friendbotService");
 const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
+
+// ── Per-IP rate limiter for the Friendbot funding endpoint ────────────────────
+// 1 request per IP per 60-minute window. The store is kept as a standalone
+// reference so tests can reset it between cases.
+const fundLimiterStore = new MemoryStore();
+const fundRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 1,
+  store: fundLimiterStore,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Only one Friendbot request is allowed per IP per hour. Please try again later." },
+});
 
 // ── Per-key rate limiter for the transactions endpoint ────────────────────────
 // Keyed on the publicKey path param so each Stellar address gets its own quota.
@@ -224,3 +239,6 @@ router.post(
 );
 
 module.exports = router;
+
+// Exposed so tests can clear the funding rate limiter between cases.
+module.exports.resetFundRateLimiter = () => fundLimiterStore.resetAll();

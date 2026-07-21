@@ -37,8 +37,10 @@ npm run dev
 | `GET` | `/api/v1/streams/:id` | Get stream by ID |
 | `POST` | `/api/v1/streams` | Index a stream |
 | `GET` | `/api/v1/stellar/account/:publicKey` | Horizon account info |
+| `GET` | `/api/v1/stellar/account/:publicKey/transactions` | Paginated payment history |
 | `GET` | `/api/v1/stellar/network` | Network config |
 | `GET` | `/api/v1/stellar/fee` | Fee statistics |
+| `POST` | `/api/v1/stellar/fund` | Fund a Testnet account via Friendbot |
 
 ## Query Parameters — Assets
 

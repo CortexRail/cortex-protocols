@@ -10,6 +10,8 @@
 const request = require("supertest");
 const app = require("../../app");
 const { cacheClear } = require("../../services/transactionService");
+const stellarRouter = require("../../routes/stellar");
+const stellarConfig = require("../../config/stellar");
 
 // ── Mock the Horizon server ───────────────────────────────────────────────────
 
@@ -100,6 +102,8 @@ function mockHorizonSuccess(txs, ops) {
 beforeEach(() => {
   cacheClear();
   jest.clearAllMocks();
+  stellarRouter.resetFundRateLimiter();
+  stellarConfig.NETWORK = "testnet";
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -429,5 +433,107 @@ describe("GET /api/v1/stellar/account/:publicKey/transactions", () => {
     expect(res.body.data).toEqual([]);
     expect(res.body.meta.count).toBe(0);
     expect(res.body.meta.hasMore).toBe(false);
+  });
+});
+
+describe("POST /api/v1/stellar/fund", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("funds a valid Testnet account", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ hash: "friendbot-tx-hash" }),
+    });
+
+    const res = await request(app)
+      .post("/api/v1/stellar/fund")
+      .send({ publicKey: VALID_KEY })
+      .expect(200);
+
+    expect(res.body).toEqual({
+      publicKey: VALID_KEY,
+      funded: true,
+      hash: "friendbot-tx-hash",
+    });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`addr=${VALID_KEY}`)
+    );
+  });
+
+  it("returns 400 when publicKey is missing", async () => {
+    const res = await request(app).post("/api/v1/stellar/fund").send({}).expect(400);
+    expect(res.body.error).toMatch(/publicKey is required/i);
+  });
+
+  it("returns 400 for a malformed publicKey", async () => {
+    const res = await request(app)
+      .post("/api/v1/stellar/fund")
+      .send({ publicKey: "not-a-real-key" })
+      .expect(400);
+    expect(res.body.error).toMatch(/valid Stellar public key/i);
+  });
+
+  it("returns 403 when the network is configured for Mainnet", async () => {
+    stellarConfig.NETWORK = "mainnet";
+    global.fetch = jest.fn();
+
+    const res = await request(app)
+      .post("/api/v1/stellar/fund")
+      .send({ publicKey: VALID_KEY })
+      .expect(403);
+
+    expect(res.body).toEqual({
+      error: "Friendbot is only available on Stellar Testnet.",
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns a structured 500 error when Friendbot fails", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: jest.fn().mockResolvedValue({ detail: "createAccountAlreadyExist" }),
+    });
+
+    const res = await request(app)
+      .post("/api/v1/stellar/fund")
+      .send({ publicKey: VALID_KEY })
+      .expect(500);
+
+    expect(res.body).toHaveProperty("error");
+  });
+
+  it("returns a structured 500 error when Friendbot is unreachable", async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error("network down"));
+
+    const res = await request(app)
+      .post("/api/v1/stellar/fund")
+      .send({ publicKey: VALID_KEY })
+      .expect(500);
+
+    expect(res.body).toHaveProperty("error");
+  });
+
+  it("returns 429 after the per-IP limit (1 per hour) is exceeded", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ hash: "friendbot-tx-hash" }),
+    });
+
+    await request(app)
+      .post("/api/v1/stellar/fund")
+      .send({ publicKey: VALID_KEY })
+      .expect(200);
+
+    const res = await request(app)
+      .post("/api/v1/stellar/fund")
+      .send({ publicKey: VALID_KEY })
+      .expect(429);
+
+    expect(res.body).toHaveProperty("error");
   });
 });
