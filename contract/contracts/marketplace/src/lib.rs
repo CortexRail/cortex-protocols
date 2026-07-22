@@ -1,8 +1,13 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String, Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map, String, Symbol,
+    Vec,
 };
+
+/// Contract code version. Bump on every deployed upgrade so clients can
+/// detect which revision is live via `version()`.
+const VERSION: u32 = 1;
 
 #[cfg(test)]
 mod test;
@@ -239,6 +244,36 @@ impl MarketplaceContract {
         owner.require_auth();
         env.storage().instance().set(&OWNER, &owner);
         env.storage().instance().set(&ASSET_COUNT, &0u64);
+    }
+
+    /// Upgrade the contract to new WASM code. Owner-only.
+    ///
+    /// `new_wasm_hash` must reference WASM already uploaded to the network
+    /// (`stellar contract upload`). Storage is preserved across upgrades;
+    /// the new code serves every invocation after this transaction.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let owner: Address = env
+            .storage()
+            .instance()
+            .get(&OWNER)
+            .expect("contract not initialized");
+        owner.require_auth();
+
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events()
+            .publish((symbol_short!("UPGRADED"),), new_wasm_hash);
+    }
+
+    /// Version of the currently deployed contract code.
+    pub fn version(_env: Env) -> u32 {
+        VERSION
+    }
+
+    /// Current admin owner of the marketplace.
+    pub fn get_owner(env: Env) -> Option<Address> {
+        env.storage().instance().get(&OWNER)
     }
 
     // ── Asset Management ──────────────────────────────────────────────────

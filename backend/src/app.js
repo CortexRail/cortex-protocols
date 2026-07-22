@@ -9,6 +9,7 @@ const agentsRouter = require("./routes/agents");
 const streamsRouter = require("./routes/streams");
 const stellarRouter = require("./routes/stellar");
 const internalRouter = require("./routes/internal");
+const healthRouter = require("./routes/health");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -47,6 +48,7 @@ app.get("/health", (_req, res) => {
     network: process.env.STELLAR_NETWORK || "testnet",
   });
 });
+app.use("/health", healthRouter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/v1/assets", assetsRouter);
