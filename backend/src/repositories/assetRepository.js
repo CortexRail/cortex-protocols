@@ -11,6 +11,8 @@ const {
   escapeLike,
 } = require("./repoUtils");
 
+const { advancedSearch } = require("../utils/advancedSearch");
+
 const COLUMNS = `
   id, owner, name, description, asset_type, license_type, price,
   version, usage_count, is_active, tags, created_at, indexed_at, updated_at,
@@ -21,7 +23,7 @@ function availableVersions(version) {
   const minimumVersion = Math.max(1, version - 4);
   return Array.from(
     { length: version - minimumVersion + 1 },
-    (_, index) => minimumVersion + index
+    (_, index) => minimumVersion + index,
   );
 }
 
@@ -105,7 +107,7 @@ async function create(asset, client) {
       msParam(createdAt),
       hasVersion,
     ],
-    client
+    client,
   );
   return mapAsset(rows[0]);
 }
@@ -118,7 +120,7 @@ async function findById(id, { includeInactive = false } = {}, client) {
     `SELECT ${COLUMNS} FROM assets
      WHERE id = $1 ${includeInactive ? "" : "AND is_active"}`,
     [id],
-    client
+    client,
   );
   return mapAsset(rows[0]);
 }
@@ -170,7 +172,7 @@ async function findAll(filters = {}, pagination = {}, client) {
   const countResult = await run(
     `SELECT count(*)::bigint AS total FROM assets ${where}`,
     params,
-    client
+    client,
   );
   const total = Number(countResult.rows[0].total);
 
@@ -180,7 +182,7 @@ async function findAll(filters = {}, pagination = {}, client) {
      ORDER BY created_at DESC, id DESC
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
-    client
+    client,
   );
 
   return { data: rows.map(mapAsset), meta: buildMeta(total, page, limit) };
@@ -190,6 +192,14 @@ async function findAll(filters = {}, pagination = {}, client) {
  * Full-text search over name/description (weighted tsvector) with a tag
  * substring fallback, ranked by relevance. Accepts the same filters as
  * findAll.
+ *
+ * This function uses a hybrid approach:
+ * 1. PostgreSQL full-text search for initial filtering (fast, database-level)
+ * 2. Advanced TF-IDF + fuzzy matching for ranking (comprehensive, application-level)
+ *
+ * The hybrid approach balances performance with search quality:
+ * - Database filters reduce the dataset size
+ * - Application-level scoring provides sophisticated relevance ranking
  */
 async function search(queryText, filters = {}, pagination = {}, client) {
   const { page, limit, offset } = normalizePagination(pagination);
@@ -203,7 +213,7 @@ async function search(queryText, filters = {}, pagination = {}, client) {
       WHERE t.tag ILIKE $${params.length}
     )`;
   clauses.push(
-    `(search_vector @@ plainto_tsquery('english', $1) OR ${tagMatch})`
+    `(search_vector @@ plainto_tsquery('english', $1) OR ${tagMatch})`,
   );
 
   const where = `WHERE ${clauses.join(" AND ")}`;
@@ -211,22 +221,82 @@ async function search(queryText, filters = {}, pagination = {}, client) {
   const countResult = await run(
     `SELECT count(*)::bigint AS total FROM assets ${where}`,
     params,
-    client
+    client,
   );
   const total = Number(countResult.rows[0].total);
 
-  params.push(limit, offset);
+  // Fetch all matching assets without pagination for advanced scoring
+  // This allows TF-IDF to work across the full result set
   const { rows } = await run(
-    `SELECT ${COLUMNS},
-            ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
+    `SELECT ${COLUMNS}
      FROM assets ${where}
-     ORDER BY rank DESC, created_at DESC, id DESC
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+     ORDER BY created_at DESC, id DESC`,
     params,
-    client
+    client,
   );
 
-  return { data: rows.map(mapAsset), meta: buildMeta(total, page, limit) };
+  // Apply advanced search with TF-IDF scoring and fuzzy matching
+  const mappedAssets = rows.map(mapAsset);
+  const rankedResults = advancedSearch(mappedAssets, queryText, {
+    minScore: 0, // Include all results from DB filter
+    weights: { name: 3, description: 1, tags: 2 },
+  });
+
+  // Apply pagination to the ranked results
+  const paginatedResults = rankedResults.slice(offset, offset + limit);
+
+  return {
+    data: paginatedResults,
+    meta: buildMeta(rankedResults.length, page, limit),
+  };
+}
+
+/**
+ * Advanced search that bypasses database filtering and applies
+ * pure TF-IDF + fuzzy matching. Useful for scenarios where you want
+ * maximum search quality over raw performance.
+ *
+ * @param {string} queryText - Search query
+ * @param {Object} filters - Same filters as findAll
+ * @param {Object} pagination - Pagination params
+ * @param {Object} client - Database client
+ * @returns {Object} - Search results with score field
+ */
+async function advancedSearchOnly(
+  queryText,
+  filters = {},
+  pagination = {},
+  client,
+) {
+  const { page, limit, offset } = normalizePagination(pagination);
+
+  // Fetch all assets matching the filters (no text search in DB)
+  const params = [];
+  const clauses = buildFilterClauses(filters, params);
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+
+  const { rows } = await run(
+    `SELECT ${COLUMNS}
+     FROM assets ${where}
+     ORDER BY created_at DESC, id DESC`,
+    params,
+    client,
+  );
+
+  // Apply advanced search with TF-IDF scoring and fuzzy matching
+  const mappedAssets = rows.map(mapAsset);
+  const rankedResults = advancedSearch(mappedAssets, queryText, {
+    minScore: 0.1, // Filter out very low relevance results
+    weights: { name: 3, description: 1, tags: 2 },
+  });
+
+  // Apply pagination
+  const paginatedResults = rankedResults.slice(offset, offset + limit);
+
+  return {
+    data: paginatedResults,
+    meta: buildMeta(rankedResults.length, page, limit),
+  };
 }
 
 /**
@@ -253,7 +323,7 @@ async function update(id, patch, client) {
     const value = key === "tags" ? JSON.stringify(patch[key]) : patch[key];
     params.push(value);
     sets.push(
-      `${column} = $${params.length}${key === "tags" ? "::jsonb" : ""}`
+      `${column} = $${params.length}${key === "tags" ? "::jsonb" : ""}`,
     );
   }
 
@@ -266,7 +336,7 @@ async function update(id, patch, client) {
      WHERE id = $1
      RETURNING ${COLUMNS}`,
     params,
-    client
+    client,
   );
   return mapAsset(rows[0]);
 }
@@ -280,7 +350,7 @@ async function softDelete(id, client) {
      SET is_active = FALSE, deleted_at = now(), updated_at = now()
      WHERE id = $1 AND is_active`,
     [id],
-    client
+    client,
   );
   return rowCount > 0;
 }
@@ -294,7 +364,7 @@ async function incrementUsage(id, client) {
      WHERE id = $1
      RETURNING usage_count`,
     [id],
-    client
+    client,
   );
   return rows.length ? rows[0].usage_count : null;
 }
@@ -311,7 +381,7 @@ async function updateVersion(id, version, client) {
      WHERE id = $1
      RETURNING ${COLUMNS}`,
     [id, version],
-    client
+    client,
   );
   return mapAsset(rows[0]);
 }
@@ -321,6 +391,7 @@ module.exports = {
   findById,
   findAll,
   search,
+  advancedSearchOnly,
   update,
   softDelete,
   incrementUsage,
