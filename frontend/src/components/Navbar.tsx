@@ -19,6 +19,9 @@ export default function Navbar() {
           <Link href="/agents/leaderboard" className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">
             Leaderboard
           </Link>
+          <Link href="/streams" className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">
+            Streams
+          </Link>
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"

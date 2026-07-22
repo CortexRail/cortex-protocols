@@ -3,8 +3,8 @@
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _},
-    token, vec, Address, Env, FromVal, IntoVal, Map, String,
+    testutils::{Address as _, Events as _, MockAuth, MockAuthInvoke},
+    token, vec, Address, BytesN, Env, FromVal, IntoVal, Map, String,
 };
 
 fn setup() -> (Env, Address, Address) {
@@ -575,3 +575,66 @@ fn test_has_no_license_by_default() {
 }
 
 // TODO: add negative test for purchasing own asset (should panic)
+
+// ── Upgrade mechanism ────────────────────────────────────────────────────────
+
+#[test]
+fn test_version() {
+    let (env, admin, contract_id) = setup();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    assert_eq!(client.version(), 1);
+}
+
+#[test]
+fn test_get_owner() {
+    let (env, admin, contract_id) = setup();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    assert_eq!(client.get_owner(), None);
+    client.initialize(&admin);
+    assert_eq!(client.get_owner(), Some(admin));
+}
+
+#[test]
+#[should_panic(expected = "contract not initialized")]
+fn test_upgrade_requires_initialization() {
+    let (env, _admin, contract_id) = setup();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.upgrade(&BytesN::from_array(&env, &[0u8; 32]));
+}
+
+#[test]
+fn test_upgrade_with_unknown_wasm_fails() {
+    let (env, admin, contract_id) = setup();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    // Hash of WASM that was never uploaded — the host must reject it,
+    // leaving the current code in place.
+    let bogus = BytesN::from_array(&env, &[7u8; 32]);
+    assert!(client.try_upgrade(&bogus).is_err());
+    assert_eq!(client.version(), 1);
+}
+
+#[test]
+fn test_upgrade_requires_owner_auth() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(MarketplaceContract, ());
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    // Only initialize is authorized; upgrade gets no signature.
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "initialize",
+            args: (admin.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.initialize(&admin);
+
+    let bogus = BytesN::from_array(&env, &[7u8; 32]);
+    assert!(client.try_upgrade(&bogus).is_err());
+}
