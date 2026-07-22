@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { WatchWalletChanges } from "@stellar/freighter-api";
 
 import {
@@ -181,12 +182,12 @@ export default function NewAssetPage() {
   return (
     <main className="flex min-h-screen justify-center bg-black px-4 py-12 text-white sm:py-16">
       <div className="w-full max-w-xl space-y-6">
-        <a
+        <Link
           href="/marketplace"
           className="inline-flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-300"
         >
           <span aria-hidden>←</span> Back to marketplace
-        </a>
+        </Link>
 
         <div className="space-y-2">
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-purple-400">

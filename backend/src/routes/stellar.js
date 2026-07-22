@@ -3,7 +3,8 @@ const { body, query, param } = require("express-validator");
 const rateLimit = require("express-rate-limit");
 const { MemoryStore } = rateLimit;
 const validate = require("../middleware/validate");
-const { horizonServer, NETWORK, CONTRACT_IDS } = require("../config/stellar");
+const stellarConfig = require("../config/stellar");
+const { horizonServer, NETWORK, CONTRACT_IDS } = stellarConfig;
 const {
   ASSET_TYPES,
   LICENSE_TYPES,
@@ -237,6 +238,36 @@ router.post(
     }
   }
 );
+
+/**
+ * POST /api/v1/stellar/fund
+ * Fund a Testnet account via Stellar Friendbot. Testnet only — Mainnet
+ * deployments reject with 403. Rate limited to 1 request per IP per hour.
+ */
+router.post("/fund", fundRateLimiter, async (req, res) => {
+  try {
+    const { publicKey } = req.body;
+
+    if (!publicKey) {
+      return res.status(400).json({ error: "publicKey is required" });
+    }
+    if (!isValidStellarAddress(publicKey)) {
+      return res
+        .status(400)
+        .json({ error: "publicKey must be a valid Stellar public key" });
+    }
+    if (stellarConfig.NETWORK === "mainnet") {
+      return res
+        .status(403)
+        .json({ error: "Friendbot is only available on Stellar Testnet." });
+    }
+
+    const result = await fundAccount(publicKey);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
 

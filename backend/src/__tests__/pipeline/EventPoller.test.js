@@ -24,7 +24,9 @@ describe("EventPoller circuit breaker", () => {
     for (let i = 0; i < 10; i += 1) {
       try {
         await poller.fetchEvents(0);
-      } catch (_) {}
+      } catch (_) {
+        // Expected — accumulating failures to trip the circuit breaker.
+      }
     }
 
     expect(poller.failureCount).toBeGreaterThanOrEqual(10);

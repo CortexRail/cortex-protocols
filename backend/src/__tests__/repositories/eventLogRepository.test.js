@@ -27,10 +27,23 @@ describe("eventLogRepository.append", () => {
     expect(typeof event.ingestedAt).toBe("number");
   });
 
-  it("is append-only: identical events create distinct rows", async () => {
+  it("is idempotent: appending an identical event twice does not duplicate it", async () => {
     const input = buildEvent({ txHash: "same-tx" });
-    await eventLogRepository.append(input);
-    await eventLogRepository.append(input);
+    const first = await eventLogRepository.append(input);
+    const second = await eventLogRepository.append(input);
+
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
+
+    const rows = await eventLogRepository.findSince(0);
+    expect(rows).toHaveLength(1);
+  });
+
+  it("appends distinct rows for events differing only by eventIndex", async () => {
+    const base = buildEvent({ txHash: "multi-op-tx" });
+    await eventLogRepository.append({ ...base, eventIndex: 0 });
+    await eventLogRepository.append({ ...base, eventIndex: 1 });
+
     const rows = await eventLogRepository.findSince(0);
     expect(rows).toHaveLength(2);
   });

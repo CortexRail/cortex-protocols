@@ -1,4 +1,5 @@
 const request = require("supertest");
+const { Keypair } = require("@stellar/stellar-sdk");
 const app = require("../app");
 const { seed } = require("../db/seed");
 const assetRepository = require("../repositories/assetRepository");
@@ -270,6 +271,81 @@ describe("POST /api/v1/assets/:id/purchase", () => {
       .send({ buyer: OWNER_B, assetVersion: 2 })
       .expect(400);
     expect(res.body.error).toMatch(/unavailable/i);
+  });
+});
+
+describe("POST /api/v1/assets/:id/report", () => {
+  it("files a report and persists it", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets/4/report")
+      .send({ reporter: OWNER_B, reason: "Spam", details: "Looks duplicated." })
+      .expect(201);
+
+    expect(res.body.report.assetId).toBe(4);
+    expect(res.body.report.reason).toBe("Spam");
+    expect(res.body.report.status).toBe("Pending");
+    expect(res.body.flagged).toBe(false);
+  });
+
+  it("rejects an empty reason", async () => {
+    await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reporter: OWNER_B, reason: "" })
+      .expect(422);
+  });
+
+  it("rejects an unrecognized reason", async () => {
+    await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reporter: OWNER_B, reason: "NotAReason" })
+      .expect(422);
+  });
+
+  it("rejects a missing reporter", async () => {
+    await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reason: "Spam" })
+      .expect(422);
+  });
+
+  it("validates the reporter's Stellar address, naming the field", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reporter: BAD_CHECKSUM_KEY, reason: "Spam" })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "reporter")).toBe(true);
+  });
+
+  it("returns 404 for an unknown asset", async () => {
+    await request(app)
+      .post("/api/v1/assets/424242/report")
+      .send({ reporter: OWNER_B, reason: "Spam" })
+      .expect(404);
+  });
+
+  it("rejects a duplicate open report from the same reporter with 409", async () => {
+    await request(app)
+      .post("/api/v1/assets/1/report")
+      .send({ reporter: OWNER_B, reason: "Spam" })
+      .expect(201);
+
+    await request(app)
+      .post("/api/v1/assets/1/report")
+      .send({ reporter: OWNER_B, reason: "Other" })
+      .expect(409);
+  });
+
+  it("flags the asset once reports exceed the threshold, visible on the asset index", async () => {
+    for (let i = 0; i < 6; i++) {
+      await request(app)
+        .post("/api/v1/assets/3/report")
+        .send({ reporter: Keypair.random().publicKey(), reason: "Spam" })
+        .expect(201);
+    }
+
+    const res = await request(app).get("/api/v1/assets/3").expect(200);
+    expect(res.body.flagged).toBe(true);
   });
 });
 

@@ -10,6 +10,7 @@ const streamsRouter = require("./routes/streams");
 const stellarRouter = require("./routes/stellar");
 const internalRouter = require("./routes/internal");
 const healthRouter = require("./routes/health");
+const adminRouter = require("./routes/admin");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -56,6 +57,7 @@ app.use("/api/v1/agents", agentsRouter);
 app.use("/api/v1/streams", streamsRouter);
 app.use("/api/v1/stellar", stellarRouter);
 app.use("/api/v1/internal", internalRouter);
+app.use("/api/v1/admin", adminRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);
