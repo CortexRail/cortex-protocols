@@ -15,8 +15,8 @@ const { advancedSearch } = require("../utils/advancedSearch");
 
 const COLUMNS = `
   id, owner, name, description, asset_type, license_type, price,
-  version, usage_count, is_active, tags, created_at, indexed_at, updated_at,
-  deleted_at
+  version, usage_count, is_active, tags, flagged, flagged_at, created_at,
+  indexed_at, updated_at, deleted_at
 `;
 
 function availableVersions(version) {
@@ -43,6 +43,8 @@ function mapAsset(row) {
     usageCount: row.usage_count,
     isActive: row.is_active,
     tags: row.tags,
+    flagged: row.flagged,
+    flaggedAt: toMs(row.flagged_at),
     createdAt: toMs(row.created_at),
     indexedAt: toMs(row.indexed_at),
     updatedAt: toMs(row.updated_at),
@@ -386,6 +388,23 @@ async function updateVersion(id, version, client) {
   return mapAsset(rows[0]);
 }
 
+/**
+ * Mark an asset as flagged for moderation review. Idempotent — flagging an
+ * already-flagged asset leaves its original flaggedAt untouched. Returns
+ * null if the asset doesn't exist.
+ */
+async function flagAsset(id, client) {
+  const { rows } = await run(
+    `UPDATE assets
+     SET flagged = TRUE, flagged_at = COALESCE(flagged_at, now()), updated_at = now()
+     WHERE id = $1
+     RETURNING ${COLUMNS}`,
+    [id],
+    client,
+  );
+  return mapAsset(rows[0]);
+}
+
 module.exports = {
   create,
   findById,
@@ -396,4 +415,5 @@ module.exports = {
   softDelete,
   incrementUsage,
   updateVersion,
+  flagAsset,
 };

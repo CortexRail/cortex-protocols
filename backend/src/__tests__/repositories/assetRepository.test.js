@@ -368,3 +368,31 @@ describe("assetRepository.updateVersion", () => {
     expect(await assetRepository.updateVersion(987_654, 2)).toBeNull();
   });
 });
+
+describe("assetRepository.flagAsset", () => {
+  it("defaults new assets to unflagged", async () => {
+    const asset = await assetRepository.create(buildAsset());
+    expect(asset.flagged).toBe(false);
+    expect(asset.flaggedAt).toBeNull();
+  });
+
+  it("marks the asset as flagged and stamps flaggedAt", async () => {
+    const input = buildAsset();
+    await assetRepository.create(input);
+    const flagged = await assetRepository.flagAsset(input.id);
+    expect(flagged.flagged).toBe(true);
+    expect(flagged.flaggedAt).not.toBeNull();
+  });
+
+  it("is idempotent — flagging twice keeps the original flaggedAt", async () => {
+    const input = buildAsset();
+    await assetRepository.create(input);
+    const first = await assetRepository.flagAsset(input.id);
+    const second = await assetRepository.flagAsset(input.id);
+    expect(second.flaggedAt).toBe(first.flaggedAt);
+  });
+
+  it("returns null for unknown asset", async () => {
+    expect(await assetRepository.flagAsset(999_999)).toBeNull();
+  });
+});

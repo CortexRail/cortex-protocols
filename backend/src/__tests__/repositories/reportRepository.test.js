@@ -109,3 +109,18 @@ describe("reportRepository.updateStatus", () => {
     expect(await reportRepository.updateStatus(60_606, "Dismissed")).toBeNull();
   });
 });
+
+describe("reportRepository.countForAsset", () => {
+  it("counts all reports regardless of status", async () => {
+    const first = await reportRepository.create(buildReport({ reporter: OWNER_A }));
+    await reportRepository.updateStatus(first.id, "Dismissed");
+    await reportRepository.create(buildReport({ reporter: OWNER_B }));
+
+    expect(await reportRepository.countForAsset(asset.id)).toBe(2);
+  });
+
+  it("returns 0 for an asset with no reports", async () => {
+    const other = await assetRepository.create(buildAsset());
+    expect(await reportRepository.countForAsset(other.id)).toBe(0);
+  });
+});

@@ -37,7 +37,7 @@ const horizonUrl =
   HORIZON_URLS[NETWORK] ||
   HORIZON_URLS.testnet;
 
-const rpcServer = new SorobanRpcNs.Server(rpcUrl, { allowHttp: false });
+const rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: false });
 const horizonServer = new Horizon.Server(horizonUrl);
 
 const CONTRACT_IDS = {

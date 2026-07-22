@@ -10,6 +10,7 @@ const {
   LICENSE_TYPES,
 } = require("../services/assetService");
 const { purchaseLicense } = require("../services/licenseService");
+const { fileReport, REPORT_REASONS } = require("../services/reportService");
 const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
@@ -121,6 +122,35 @@ router.post(
       assetId: Number(req.params.id),
       buyer: req.body.buyer,
       assetVersion: req.body.assetVersion,
+    });
+    res.status(201).json(result);
+  })
+);
+
+/**
+ * POST /api/v1/assets/:id/report
+ * File a moderation report against an asset. Auto-flags the asset once its
+ * report count crosses reportService.FLAG_THRESHOLD.
+ */
+router.post(
+  "/:id/report",
+  [
+    param("id").isInt({ min: 1 }),
+    body("reporter")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    body("reason").isIn(REPORT_REASONS),
+    body("details").optional().isString().trim().isLength({ max: 2000 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await fileReport({
+      assetId: Number(req.params.id),
+      reporter: req.body.reporter,
+      reason: req.body.reason,
+      details: req.body.details,
     });
     res.status(201).json(result);
   })
