@@ -11,11 +11,7 @@
  *   node src/scripts/benchmarkSearch.js 10000
  */
 
-const {
-  benchmarkSearch,
-  generateSyntheticAssets,
-  advancedSearch,
-} = require("../utils/advancedSearch");
+const { generateSyntheticAssets, advancedSearch } = require("../utils/advancedSearch");
 
 // Test queries with different characteristics
 const TEST_QUERIES = [

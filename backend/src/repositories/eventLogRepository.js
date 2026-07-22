@@ -39,11 +39,13 @@ async function append(event, client) {
   const { rows } = await run(
     `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash, event_index)
      VALUES ($1, $2, $3::text[], $4::jsonb, $5, $6)
+     ON CONFLICT (contract_id, ledger, COALESCE(tx_hash, ''), event_index) DO NOTHING
      RETURNING ${COLUMNS}`,
     [ledger, contractId, topic, JSON.stringify(payload), txHash || "", eventIndex],
     client
   );
-  return mapEvent(rows[0]);
+  // rows is empty when the event was already logged (unique constraint hit).
+  return rows.length ? mapEvent(rows[0]) : null;
 }
 
 /**

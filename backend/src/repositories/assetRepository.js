@@ -220,13 +220,6 @@ async function search(queryText, filters = {}, pagination = {}, client) {
 
   const where = `WHERE ${clauses.join(" AND ")}`;
 
-  const countResult = await run(
-    `SELECT count(*)::bigint AS total FROM assets ${where}`,
-    params,
-    client,
-  );
-  const total = Number(countResult.rows[0].total);
-
   // Fetch all matching assets without pagination for advanced scoring
   // This allows TF-IDF to work across the full result set
   const { rows } = await run(

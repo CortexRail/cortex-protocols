@@ -75,12 +75,11 @@ function termFrequency(term, tokens) {
   if (tokens.length === 0) return 0;
 
   const count = tokens.filter((t) => t === term).length;
-  const maxCount = Math.max(
-    ...tokens.reduce((acc, t) => {
-      acc[t] = (acc[t] || 0) + 1;
-      return acc;
-    }, Object.create(null)),
-  );
+  const counts = tokens.reduce((acc, t) => {
+    acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, Object.create(null));
+  const maxCount = Math.max(...Object.values(counts));
 
   // Augmented frequency: 0.5 + 0.5 * (raw_count / max_count)
   return 0.5 + 0.5 * (count / Math.max(1, maxCount));
@@ -273,6 +272,7 @@ function advancedSearch(assets, query, options = {}) {
   const {
     minScore = 0,
     weights = { name: 3, description: 1, tags: 2 },
+    // eslint-disable-next-line no-unused-vars -- documented option, not yet wired into scoring
     includeFuzzy = true,
   } = options;
 
