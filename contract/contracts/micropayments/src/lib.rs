@@ -6,7 +6,7 @@
 //! continuously (per-second or per-call billing), with deposit/withdrawal and
 //! automatic settlement.
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol, Vec};
 
 const STREAMS: Symbol = symbol_short!("STREAMS");
 const STREAM_CNT: Symbol = symbol_short!("S_CNT");
@@ -131,7 +131,9 @@ impl MicropaymentsContract {
 
         let now = env.ledger().timestamp();
         let amount = stream.claimable(now);
-        assert!(amount > 0, "nothing to withdraw");
+        if amount <= 0 {
+            return 0;
+        }
 
         let token_client = soroban_sdk::token::Client::new(&env, &stream.token);
         token_client.transfer(&env.current_contract_address(), &recipient, &amount);
@@ -260,6 +262,78 @@ impl MicropaymentsContract {
     pub fn stream_count(env: Env) -> u64 {
         env.storage().instance().get(&STREAM_CNT).unwrap_or(0u64)
     }
+
+    /// Settle multiple streams for a recipient in a single transaction.
+    pub fn batch_settle(env: Env, recipient: Address, stream_ids: Vec<u64>) -> Map<u64, i128> {
+        recipient.require_auth();
+
+        let mut streams: Map<u64, PaymentStream> = env
+            .storage()
+            .persistent()
+            .get(&STREAMS)
+            .unwrap_or(Map::new(&env));
+
+        let mut settled_amounts: Map<u64, i128> = Map::new(&env);
+        let now = env.ledger().timestamp();
+
+        for id in stream_ids.iter() {
+            if let Some(mut stream) = streams.get(id.clone()) {
+                assert!(stream.recipient == recipient, "not the stream recipient");
+                let amount = stream.claimable(now);
+                if amount > 0 {
+                    let token_client = soroban_sdk::token::Client::new(&env, &stream.token);
+                    token_client.transfer(&env.current_contract_address(), &recipient, &amount);
+
+                    stream.withdrawn += amount;
+                    stream.last_settled = now;
+
+                    // Auto-complete if deposit exhausted or past end_time
+                    if stream.withdrawn >= stream.deposit || now >= stream.end_time {
+                        stream.status = StreamStatus::Completed;
+                    }
+
+                    streams.set(id.clone(), stream.clone());
+                    settled_amounts.set(id.clone(), amount);
+
+                    env.events()
+                        .publish((symbol_short!("WITHDRAWN"), recipient.clone()), (id, amount));
+                } else {
+                    settled_amounts.set(id, 0);
+                }
+            } else {
+                settled_amounts.set(id, 0);
+            }
+        }
+
+        env.storage().persistent().set(&STREAMS, &streams);
+        settled_amounts
+    }
+
+    /// View helper to check the claimable balance across multiple streams.
+    pub fn get_claimable_batch(env: Env, stream_ids: Vec<u64>) -> Map<u64, i128> {
+        let streams: Map<u64, PaymentStream> = env
+            .storage()
+            .persistent()
+            .get(&STREAMS)
+            .unwrap_or(Map::new(&env));
+
+        let mut result: Map<u64, i128> = Map::new(&env);
+        let now = env.ledger().timestamp();
+
+        for id in stream_ids.iter() {
+            match streams.get(id.clone()) {
+                Some(s) => {
+                    result.set(id, s.claimable(now));
+                }
+                None => {
+                    result.set(id, 0);
+                }
+            }
+        }
+        result
+    }
 }
 
-// Streams auto-complete when deposit is fully withdrawn or end_time is reached.
+#[cfg(test)]
+mod test;
+
