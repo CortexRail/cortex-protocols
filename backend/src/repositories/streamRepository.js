@@ -6,7 +6,8 @@ const { run, toMs, normalizePagination, buildMeta } = require("./repoUtils");
 
 const COLUMNS = `
   id, sender, recipient, token, deposit, rate_per_second, start_time,
-  end_time, status, withdrawn, indexed_at, updated_at
+  end_time, status, withdrawn, indexed_at, updated_at,
+  calls_remaining, calls_used, price_per_call
 `;
 
 function mapStream(row) {
@@ -24,6 +25,9 @@ function mapStream(row) {
     withdrawn: row.withdrawn,
     indexedAt: toMs(row.indexed_at),
     updatedAt: toMs(row.updated_at),
+    callsRemaining: row.calls_remaining,
+    callsUsed: row.calls_used,
+    pricePerCall: row.price_per_call,
   };
 }
 
@@ -42,13 +46,16 @@ async function create(stream, client) {
     endTime,
     status = "Active",
     withdrawn = 0,
+    callsRemaining = 0,
+    callsUsed = 0,
+    pricePerCall = 0,
   } = stream;
 
   const { rows } = await run(
     `INSERT INTO streams
        (id, sender, recipient, token, deposit, rate_per_second,
-        start_time, end_time, status, withdrawn)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        start_time, end_time, status, withdrawn, calls_remaining, calls_used, price_per_call)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (id) DO UPDATE SET
        sender          = EXCLUDED.sender,
        recipient       = EXCLUDED.recipient,
@@ -59,9 +66,26 @@ async function create(stream, client) {
        end_time        = EXCLUDED.end_time,
        status          = EXCLUDED.status,
        withdrawn       = EXCLUDED.withdrawn,
+       calls_remaining = EXCLUDED.calls_remaining,
+       calls_used      = EXCLUDED.calls_used,
+       price_per_call  = EXCLUDED.price_per_call,
        updated_at      = now()
      RETURNING ${COLUMNS}`,
-    [id, sender, recipient, token, deposit, ratePerSecond, startTime, endTime, status, withdrawn],
+    [
+      id,
+      sender,
+      recipient,
+      token,
+      deposit,
+      ratePerSecond,
+      startTime,
+      endTime,
+      status,
+      withdrawn,
+      callsRemaining,
+      callsUsed,
+      pricePerCall,
+    ],
     client
   );
   return mapStream(rows[0]);
@@ -167,12 +191,47 @@ async function recordWithdrawal(id, amount, client) {
   );
 }
 
+async function findAndLockById(id, client) {
+  const { rows } = await run(
+    `SELECT ${COLUMNS} FROM streams WHERE id = $1 FOR UPDATE`,
+    [id],
+    client
+  );
+  return mapStream(rows[0]);
+}
+
+async function updateCalls(id, callsRemaining, callsUsed, client) {
+  const { rows } = await run(
+    `UPDATE streams
+     SET calls_remaining = $2,
+         calls_used = $3,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING ${COLUMNS}`,
+    [id, callsRemaining, callsUsed],
+    client
+  );
+  return mapStream(rows[0]);
+}
+
+async function findStreamsToSettle(batchSize = 25, client) {
+  const { rows } = await run(
+    `SELECT ${COLUMNS} FROM streams WHERE status = 'Active' AND calls_used >= $1`,
+    [batchSize],
+    client
+  );
+  return rows.map(mapStream);
+}
+
 module.exports = {
   create,
   findById,
+  findAndLockById,
   findAll,
   findBySender,
   findByRecipient,
   updateStatus,
   recordWithdrawal,
+  updateCalls,
+  findStreamsToSettle,
 };
