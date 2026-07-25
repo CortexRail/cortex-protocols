@@ -1,5 +1,8 @@
 #![no_std]
 
+mod errors;
+pub use errors::MarketplaceError;
+
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map, String, Symbol,
     Vec,
@@ -279,6 +282,13 @@ impl MarketplaceContract {
     // ── Asset Management ──────────────────────────────────────────────────
 
     /// List a new intelligence asset on the marketplace.
+    ///
+    /// # Errors
+    /// - [`MarketplaceError::InvalidPrice`]      — `price` must be > 0.
+    /// - [`MarketplaceError::InvalidMetadata`]   — `name` must be 1–200 bytes;
+    ///                                             `description` must be 1–2 000 bytes.
+    /// - [`MarketplaceError::AssetLimitReached`] — contract has already reached
+    ///                                             `MAX_ASSETS` (10 000) listings.
     pub fn list_asset(
         env: Env,
         owner: Address,
@@ -287,7 +297,7 @@ impl MarketplaceContract {
         asset_type: AssetType,
         license: LicenseType,
         price: i128,
-    ) -> u64 {
+    ) -> Result<u64, MarketplaceError> {
         owner.require_auth();
 
         let count: u64 = env.storage().instance().get(&ASSET_COUNT).unwrap_or(0u64);
@@ -315,7 +325,7 @@ impl MarketplaceContract {
         env.events()
             .publish((symbol_short!("LISTED"), owner), asset_id);
 
-        asset_id
+        Ok(asset_id)
     }
 
     /// Delist / deactivate an asset. Only the owner can do this.
