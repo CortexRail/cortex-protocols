@@ -12,14 +12,17 @@ const { query, closePool } = require("../../db/connection");
  */
 async function truncateAll() {
   await query(
-    "TRUNCATE TABLE reports, licenses, events_log, streams, agents, assets RESTART IDENTITY CASCADE"
+    "TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets RESTART IDENTITY CASCADE"
   );
 }
 
 // ── Fixture builders ─────────────────────────────────────────────────────────
 
-const OWNER_A = "GBQNX4XFBKZ2S2GZPB2XVVZ5VVQYHXQAQYYVRJXPVDGXNVKGKBFLR3";
-const OWNER_B = "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGGEWNG5PZWXU2CQKM4PAT";
+// Real, checksum-valid Ed25519 public keys (generated via Keypair.random()) —
+// route validation now checks the StrKey checksum, so placeholder-looking
+// strings of the right length are no longer sufficient here.
+const OWNER_A = "GD226Q4QUIIDFBQ7TWPTP4UT4TKPX2MQRVEJSFMMCSM6ORDCPNZPPKCT";
+const OWNER_B = "GAHC3JKJCBTPODO2GEOLUCXWTIQYBCPHBOTAT2KMPZ35PXCITJ57UYGC";
 
 let nextId = 1;
 
@@ -36,6 +39,7 @@ function buildAsset(overrides = {}) {
     assetType: "Prompt",
     licenseType: "Perpetual",
     price: 1_000_000,
+    version: 1,
     usageCount: 0,
     isActive: true,
     tags: ["test"],

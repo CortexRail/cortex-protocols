@@ -11,13 +11,25 @@ const {
   escapeLike,
 } = require("./repoUtils");
 
+const { advancedSearch } = require("../utils/advancedSearch");
+
 const COLUMNS = `
   id, owner, name, description, asset_type, license_type, price,
-  usage_count, is_active, tags, created_at, indexed_at, updated_at, deleted_at
+  version, usage_count, is_active, tags, flagged, flagged_at, created_at,
+  indexed_at, updated_at, deleted_at
 `;
+
+function availableVersions(version) {
+  const minimumVersion = Math.max(1, version - 4);
+  return Array.from(
+    { length: version - minimumVersion + 1 },
+    (_, index) => minimumVersion + index,
+  );
+}
 
 function mapAsset(row) {
   if (!row) return null;
+  const version = Number(row.version);
   return {
     id: row.id,
     owner: row.owner,
@@ -26,9 +38,13 @@ function mapAsset(row) {
     assetType: row.asset_type,
     licenseType: row.license_type,
     price: row.price,
+    version,
+    availableVersions: availableVersions(version),
     usageCount: row.usage_count,
     isActive: row.is_active,
     tags: row.tags,
+    flagged: row.flagged,
+    flaggedAt: toMs(row.flagged_at),
     createdAt: toMs(row.created_at),
     indexedAt: toMs(row.indexed_at),
     updatedAt: toMs(row.updated_at),
@@ -41,6 +57,7 @@ function mapAsset(row) {
  * refreshes every mutable field plus indexed_at.
  */
 async function create(asset, client) {
+  const hasVersion = asset.version !== undefined;
   const {
     id,
     owner,
@@ -49,6 +66,7 @@ async function create(asset, client) {
     assetType,
     licenseType,
     price = 0,
+    version = 1,
     usageCount = 0,
     isActive = true,
     tags = [],
@@ -57,11 +75,11 @@ async function create(asset, client) {
 
   const { rows } = await run(
     `INSERT INTO assets
-       (id, owner, name, description, asset_type, license_type, price,
+       (id, owner, name, description, asset_type, license_type, price, version,
         usage_count, is_active, tags, created_at)
      VALUES
-       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
-        COALESCE(to_timestamp($11::double precision / 1000.0), now()))
+       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
+        COALESCE(to_timestamp($12::double precision / 1000.0), now()))
      ON CONFLICT (id) DO UPDATE SET
        owner        = EXCLUDED.owner,
        name         = EXCLUDED.name,
@@ -69,6 +87,7 @@ async function create(asset, client) {
        asset_type   = EXCLUDED.asset_type,
        license_type = EXCLUDED.license_type,
        price        = EXCLUDED.price,
+       version      = CASE WHEN $13 THEN EXCLUDED.version ELSE assets.version END,
        usage_count  = EXCLUDED.usage_count,
        is_active    = EXCLUDED.is_active,
        tags         = EXCLUDED.tags,
@@ -83,12 +102,14 @@ async function create(asset, client) {
       assetType,
       licenseType,
       price,
+      version,
       usageCount,
       isActive,
       JSON.stringify(tags),
       msParam(createdAt),
+      hasVersion,
     ],
-    client
+    client,
   );
   return mapAsset(rows[0]);
 }
@@ -101,7 +122,7 @@ async function findById(id, { includeInactive = false } = {}, client) {
     `SELECT ${COLUMNS} FROM assets
      WHERE id = $1 ${includeInactive ? "" : "AND is_active"}`,
     [id],
-    client
+    client,
   );
   return mapAsset(rows[0]);
 }
@@ -153,7 +174,7 @@ async function findAll(filters = {}, pagination = {}, client) {
   const countResult = await run(
     `SELECT count(*)::bigint AS total FROM assets ${where}`,
     params,
-    client
+    client,
   );
   const total = Number(countResult.rows[0].total);
 
@@ -163,7 +184,7 @@ async function findAll(filters = {}, pagination = {}, client) {
      ORDER BY created_at DESC, id DESC
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
-    client
+    client,
   );
 
   return { data: rows.map(mapAsset), meta: buildMeta(total, page, limit) };
@@ -173,6 +194,14 @@ async function findAll(filters = {}, pagination = {}, client) {
  * Full-text search over name/description (weighted tsvector) with a tag
  * substring fallback, ranked by relevance. Accepts the same filters as
  * findAll.
+ *
+ * This function uses a hybrid approach:
+ * 1. PostgreSQL full-text search for initial filtering (fast, database-level)
+ * 2. Advanced TF-IDF + fuzzy matching for ranking (comprehensive, application-level)
+ *
+ * The hybrid approach balances performance with search quality:
+ * - Database filters reduce the dataset size
+ * - Application-level scoring provides sophisticated relevance ranking
  */
 async function search(queryText, filters = {}, pagination = {}, client) {
   const { page, limit, offset } = normalizePagination(pagination);
@@ -186,30 +215,83 @@ async function search(queryText, filters = {}, pagination = {}, client) {
       WHERE t.tag ILIKE $${params.length}
     )`;
   clauses.push(
-    `(search_vector @@ plainto_tsquery('english', $1) OR ${tagMatch})`
+    `(search_vector @@ plainto_tsquery('english', $1) OR ${tagMatch})`,
   );
 
   const where = `WHERE ${clauses.join(" AND ")}`;
 
-  const countResult = await run(
-    `SELECT count(*)::bigint AS total FROM assets ${where}`,
-    params,
-    client
-  );
-  const total = Number(countResult.rows[0].total);
-
-  params.push(limit, offset);
+  // Fetch all matching assets without pagination for advanced scoring
+  // This allows TF-IDF to work across the full result set
   const { rows } = await run(
-    `SELECT ${COLUMNS},
-            ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
+    `SELECT ${COLUMNS}
      FROM assets ${where}
-     ORDER BY rank DESC, created_at DESC, id DESC
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+     ORDER BY created_at DESC, id DESC`,
     params,
-    client
+    client,
   );
 
-  return { data: rows.map(mapAsset), meta: buildMeta(total, page, limit) };
+  // Apply advanced search with TF-IDF scoring and fuzzy matching
+  const mappedAssets = rows.map(mapAsset);
+  const rankedResults = advancedSearch(mappedAssets, queryText, {
+    minScore: 0, // Include all results from DB filter
+    weights: { name: 3, description: 1, tags: 2 },
+  });
+
+  // Apply pagination to the ranked results
+  const paginatedResults = rankedResults.slice(offset, offset + limit);
+
+  return {
+    data: paginatedResults,
+    meta: buildMeta(rankedResults.length, page, limit),
+  };
+}
+
+/**
+ * Advanced search that bypasses database filtering and applies
+ * pure TF-IDF + fuzzy matching. Useful for scenarios where you want
+ * maximum search quality over raw performance.
+ *
+ * @param {string} queryText - Search query
+ * @param {Object} filters - Same filters as findAll
+ * @param {Object} pagination - Pagination params
+ * @param {Object} client - Database client
+ * @returns {Object} - Search results with score field
+ */
+async function advancedSearchOnly(
+  queryText,
+  filters = {},
+  pagination = {},
+  client,
+) {
+  const { page, limit, offset } = normalizePagination(pagination);
+
+  // Fetch all assets matching the filters (no text search in DB)
+  const params = [];
+  const clauses = buildFilterClauses(filters, params);
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+
+  const { rows } = await run(
+    `SELECT ${COLUMNS}
+     FROM assets ${where}
+     ORDER BY created_at DESC, id DESC`,
+    params,
+    client,
+  );
+
+  // Apply advanced search with TF-IDF scoring and fuzzy matching
+  const mappedAssets = rows.map(mapAsset);
+  const rankedResults = advancedSearch(mappedAssets, queryText, {
+    minScore: 0.1, // Filter out very low relevance results
+    weights: { name: 3, description: 1, tags: 2 },
+  });
+
+  // Apply pagination
+  const paginatedResults = rankedResults.slice(offset, offset + limit);
+
+  return {
+    data: paginatedResults,
+    meta: buildMeta(rankedResults.length, page, limit),
+  };
 }
 
 /**
@@ -236,7 +318,7 @@ async function update(id, patch, client) {
     const value = key === "tags" ? JSON.stringify(patch[key]) : patch[key];
     params.push(value);
     sets.push(
-      `${column} = $${params.length}${key === "tags" ? "::jsonb" : ""}`
+      `${column} = $${params.length}${key === "tags" ? "::jsonb" : ""}`,
     );
   }
 
@@ -249,7 +331,7 @@ async function update(id, patch, client) {
      WHERE id = $1
      RETURNING ${COLUMNS}`,
     params,
-    client
+    client,
   );
   return mapAsset(rows[0]);
 }
@@ -263,7 +345,7 @@ async function softDelete(id, client) {
      SET is_active = FALSE, deleted_at = now(), updated_at = now()
      WHERE id = $1 AND is_active`,
     [id],
-    client
+    client,
   );
   return rowCount > 0;
 }
@@ -277,9 +359,43 @@ async function incrementUsage(id, client) {
      WHERE id = $1
      RETURNING usage_count`,
     [id],
-    client
+    client,
   );
   return rows.length ? rows[0].usage_count : null;
+}
+
+/**
+ * Advance an indexed asset to the version observed in an UPDATED event.
+ * GREATEST prevents a replayed or out-of-order event from regressing the
+ * current version. Returns null when the asset has not been indexed yet.
+ */
+async function updateVersion(id, version, client) {
+  const { rows } = await run(
+    `UPDATE assets
+     SET version = GREATEST(version, $2), updated_at = now()
+     WHERE id = $1
+     RETURNING ${COLUMNS}`,
+    [id, version],
+    client,
+  );
+  return mapAsset(rows[0]);
+}
+
+/**
+ * Mark an asset as flagged for moderation review. Idempotent — flagging an
+ * already-flagged asset leaves its original flaggedAt untouched. Returns
+ * null if the asset doesn't exist.
+ */
+async function flagAsset(id, client) {
+  const { rows } = await run(
+    `UPDATE assets
+     SET flagged = TRUE, flagged_at = COALESCE(flagged_at, now()), updated_at = now()
+     WHERE id = $1
+     RETURNING ${COLUMNS}`,
+    [id],
+    client,
+  );
+  return mapAsset(rows[0]);
 }
 
 module.exports = {
@@ -287,7 +403,10 @@ module.exports = {
   findById,
   findAll,
   search,
+  advancedSearchOnly,
   update,
   softDelete,
   incrementUsage,
+  updateVersion,
+  flagAsset,
 };

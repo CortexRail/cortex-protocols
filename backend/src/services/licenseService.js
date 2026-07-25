@@ -44,11 +44,29 @@ function httpError(status, message) {
  *
  * @returns {Promise<{ license: object, usageCount: number }>}
  */
-async function purchaseLicense({ assetId, buyer }) {
+async function purchaseLicense({ assetId, buyer, assetVersion }) {
   return withTransaction(async (client) => {
     const asset = await assetRepository.findById(assetId, {}, client);
     if (!asset) {
       throw httpError(404, `Asset ${assetId} not found or inactive`);
+    }
+
+    const selectedVersion = assetVersion ?? asset.version;
+    const minimumVersion = Math.max(1, asset.version - 4);
+    if (!Number.isInteger(selectedVersion) || selectedVersion < 1) {
+      throw httpError(400, "assetVersion must be a positive integer");
+    }
+    if (selectedVersion > asset.version) {
+      throw httpError(
+        400,
+        `Asset version ${selectedVersion} is newer than current version ${asset.version}`
+      );
+    }
+    if (selectedVersion < minimumVersion) {
+      throw httpError(
+        400,
+        `Asset version ${selectedVersion} is unavailable; retained versions are ${minimumVersion}-${asset.version}`
+      );
     }
 
     // Bump the counter first so a failed license insert exercises a real
@@ -60,6 +78,7 @@ async function purchaseLicense({ assetId, buyer }) {
       license = await licenseRepository.create(
         {
           assetId,
+          assetVersion: selectedVersion,
           buyer,
           licenseType: asset.licenseType,
           pricePaid: asset.price,

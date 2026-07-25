@@ -6,8 +6,7 @@
 //! declarations, reputation scores, and wallet addresses.
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Map, String, Symbol,
-    Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String, Symbol, Vec,
 };
 
 const AGENTS: Symbol = symbol_short!("AGENTS");
@@ -70,11 +69,7 @@ impl AgentRegistryContract {
     ) -> u64 {
         owner.require_auth();
 
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&AGENT_CNT)
-            .unwrap_or(0u64);
+        let count: u64 = env.storage().instance().get(&AGENT_CNT).unwrap_or(0u64);
         let agent_id = count + 1;
 
         let agent = Agent {
@@ -99,10 +94,8 @@ impl AgentRegistryContract {
         env.storage().persistent().set(&AGENTS, &agents);
         env.storage().instance().set(&AGENT_CNT, &agent_id);
 
-        env.events().publish(
-            (symbol_short!("REGISTERED"), owner),
-            agent_id,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "REGISTERED"), owner), agent_id);
 
         agent_id
     }
@@ -132,12 +125,7 @@ impl AgentRegistryContract {
 
     /// Submit a reputation vote for an agent.
     /// Caller must be different from the agent owner.
-    pub fn vote_reputation(
-        env: Env,
-        voter: Address,
-        agent_id: u64,
-        score: u32,
-    ) {
+    pub fn vote_reputation(env: Env, voter: Address, agent_id: u64, score: u32) {
         voter.require_auth();
         assert!(score <= 100, "score must be 0-100");
 
@@ -151,7 +139,7 @@ impl AgentRegistryContract {
         assert!(agent.owner != voter, "cannot vote on own agent");
 
         // Simple rolling average update (weight = 10% of current)
-        let new_score_bp = score as u32 * 100; // convert to basis points
+        let new_score_bp = score * 100; // convert to basis points
         agent.reputation = (agent.reputation * 9 + new_score_bp) / 10;
 
         agents.set(agent_id, agent);
@@ -167,10 +155,8 @@ impl AgentRegistryContract {
         let vote_key = (REP, voter.clone(), agent_id);
         env.storage().persistent().set(&vote_key, &vote);
 
-        env.events().publish(
-            (symbol_short!("VOTED"), voter),
-            (agent_id, score),
-        );
+        env.events()
+            .publish((symbol_short!("VOTED"), voter), (agent_id, score));
     }
 
     /// Record a completed transaction (callable by marketplace contract).
@@ -218,10 +204,7 @@ impl AgentRegistryContract {
     }
 
     pub fn agent_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&AGENT_CNT)
-            .unwrap_or(0u64)
+        env.storage().instance().get(&AGENT_CNT).unwrap_or(0u64)
     }
 
     pub fn get_reputation(env: Env, agent_id: u64) -> u32 {

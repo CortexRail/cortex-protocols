@@ -1,7 +1,34 @@
 const request = require("supertest");
+const { Keypair } = require("@stellar/stellar-sdk");
 const app = require("../app");
 const { seed } = require("../db/seed");
-const { truncateAll, closePool, OWNER_B } = require("./helpers/testDb");
+const assetRepository = require("../repositories/assetRepository");
+const licenseRepository = require("../repositories/licenseRepository");
+const {
+  truncateAll,
+  closePool,
+  OWNER_A,
+  OWNER_B,
+} = require("./helpers/testDb");
+
+// Right length (56 chars), right "G" prefix, but an invalid checksum.
+const BAD_CHECKSUM_KEY =
+  "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
+function createVersionedAsset(id, overrides = {}) {
+  return assetRepository.create({
+    id,
+    owner: OWNER_A,
+    name: `Versioned asset ${id}`,
+    description: "Version-aware purchase fixture.",
+    assetType: "Prompt",
+    licenseType: "UsageBased",
+    price: 765_432,
+    version: 7,
+    tags: ["versioned"],
+    ...overrides,
+  });
+}
 
 beforeAll(async () => {
   await truncateAll();
@@ -19,6 +46,10 @@ describe("GET /api/v1/assets", () => {
     expect(res.body).toHaveProperty("meta");
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data.length).toBeGreaterThan(0);
+    res.body.data.forEach((asset) => {
+      expect(asset.version).toBe(1);
+      expect(asset.availableVersions).toEqual([1]);
+    });
   });
 
   it("filters by assetType", async () => {
@@ -66,6 +97,8 @@ describe("GET /api/v1/assets/:id", () => {
   it("returns an asset by id", async () => {
     const res = await request(app).get("/api/v1/assets/1").expect(200);
     expect(res.body.id).toBe(1);
+    expect(res.body.version).toBe(1);
+    expect(res.body.availableVersions).toEqual([1]);
   });
 
   it("returns 404 for unknown id", async () => {
@@ -83,6 +116,7 @@ describe("POST /api/v1/assets", () => {
       assetType: "Dataset",
       licenseType: "OpenSource",
       price: 0,
+      version: 3,
       tags: ["persistence", "postgres"],
     };
 
@@ -91,6 +125,8 @@ describe("POST /api/v1/assets", () => {
       .send(payload)
       .expect(201);
     expect(created.body.id).toBe(900);
+    expect(created.body.version).toBe(3);
+    expect(created.body.availableVersions).toEqual([1, 2, 3]);
 
     const fetched = await request(app).get("/api/v1/assets/900").expect(200);
     expect(fetched.body.name).toBe("Persistence Test Asset");
@@ -102,6 +138,23 @@ describe("POST /api/v1/assets", () => {
       .post("/api/v1/assets")
       .send({ id: 901, name: "incomplete" })
       .expect(422);
+  });
+
+  it("rejects an owner with an invalid checksum, naming the field", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets")
+      .send({
+        id: 902,
+        owner: BAD_CHECKSUM_KEY,
+        name: "Bad Owner Asset",
+        description: "Should fail validation before reaching the DB.",
+        assetType: "Dataset",
+        licenseType: "OpenSource",
+        price: 0,
+      })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "owner")).toBe(true);
   });
 });
 
@@ -138,6 +191,161 @@ describe("POST /api/v1/assets/:id/purchase", () => {
       .post("/api/v1/assets/2/purchase")
       .send({ buyer: "too-short" })
       .expect(422);
+  });
+
+  it("rejects a buyer with the right length but an invalid checksum", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets/2/purchase")
+      .send({ buyer: BAD_CHECKSUM_KEY })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "buyer")).toBe(true);
+  });
+
+  it("defaults an omitted assetVersion to the current version", async () => {
+    const asset = await createVersionedAsset(920);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B })
+      .expect(201);
+
+    expect(res.body.license.assetVersion).toBe(7);
+  });
+
+  it("purchases the current version explicitly", async () => {
+    const asset = await createVersionedAsset(921);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 7 })
+      .expect(201);
+
+    expect(res.body.license.assetVersion).toBe(7);
+  });
+
+  it("purchases a retained historical version using current terms", async () => {
+    const asset = await createVersionedAsset(922, {
+      licenseType: "Subscription",
+      price: 8_765_432,
+    });
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 3 })
+      .expect(201);
+
+    expect(res.body.license.assetVersion).toBe(3);
+    expect(res.body.license.pricePaid).toBe(8_765_432);
+    expect(res.body.license.licenseType).toBe("Subscription");
+
+    const stored = await licenseRepository.findByBuyerAndAsset(
+      OWNER_B,
+      asset.id
+    );
+    expect(stored.assetVersion).toBe(3);
+  });
+
+  it.each([
+    [0, "zero"],
+    [-1, "negative"],
+    [1.5, "non-integer number"],
+    ["3", "numeric string"],
+  ])("rejects %s as a %s assetVersion", async (assetVersion) => {
+    await request(app)
+      .post("/api/v1/assets/923/purchase")
+      .send({ buyer: OWNER_B, assetVersion })
+      .expect(422);
+  });
+
+  it("rejects a future asset version", async () => {
+    const asset = await createVersionedAsset(924);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 8 })
+      .expect(400);
+    expect(res.body.error).toMatch(/newer than current/i);
+  });
+
+  it("rejects an evicted asset version", async () => {
+    const asset = await createVersionedAsset(925);
+    const res = await request(app)
+      .post(`/api/v1/assets/${asset.id}/purchase`)
+      .send({ buyer: OWNER_B, assetVersion: 2 })
+      .expect(400);
+    expect(res.body.error).toMatch(/unavailable/i);
+  });
+});
+
+describe("POST /api/v1/assets/:id/report", () => {
+  it("files a report and persists it", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets/4/report")
+      .send({ reporter: OWNER_B, reason: "Spam", details: "Looks duplicated." })
+      .expect(201);
+
+    expect(res.body.report.assetId).toBe(4);
+    expect(res.body.report.reason).toBe("Spam");
+    expect(res.body.report.status).toBe("Pending");
+    expect(res.body.flagged).toBe(false);
+  });
+
+  it("rejects an empty reason", async () => {
+    await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reporter: OWNER_B, reason: "" })
+      .expect(422);
+  });
+
+  it("rejects an unrecognized reason", async () => {
+    await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reporter: OWNER_B, reason: "NotAReason" })
+      .expect(422);
+  });
+
+  it("rejects a missing reporter", async () => {
+    await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reason: "Spam" })
+      .expect(422);
+  });
+
+  it("validates the reporter's Stellar address, naming the field", async () => {
+    const res = await request(app)
+      .post("/api/v1/assets/5/report")
+      .send({ reporter: BAD_CHECKSUM_KEY, reason: "Spam" })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "reporter")).toBe(true);
+  });
+
+  it("returns 404 for an unknown asset", async () => {
+    await request(app)
+      .post("/api/v1/assets/424242/report")
+      .send({ reporter: OWNER_B, reason: "Spam" })
+      .expect(404);
+  });
+
+  it("rejects a duplicate open report from the same reporter with 409", async () => {
+    await request(app)
+      .post("/api/v1/assets/1/report")
+      .send({ reporter: OWNER_B, reason: "Spam" })
+      .expect(201);
+
+    await request(app)
+      .post("/api/v1/assets/1/report")
+      .send({ reporter: OWNER_B, reason: "Other" })
+      .expect(409);
+  });
+
+  it("flags the asset once reports exceed the threshold, visible on the asset index", async () => {
+    for (let i = 0; i < 6; i++) {
+      await request(app)
+        .post("/api/v1/assets/3/report")
+        .send({ reporter: Keypair.random().publicKey(), reason: "Spam" })
+        .expect(201);
+    }
+
+    const res = await request(app).get("/api/v1/assets/3").expect(200);
+    expect(res.body.flagged).toBe(true);
   });
 });
 
