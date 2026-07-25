@@ -40,13 +40,14 @@ async function indexAsset(assetData) {
 async function listAssets({
   assetType,
   licenseType,
+  owner,
   minPrice,
   maxPrice,
   search,
   page = 1,
   limit = 20,
 } = {}) {
-  const filters = { assetType, licenseType, minPrice, maxPrice };
+  const filters = { assetType, licenseType, owner, minPrice, maxPrice };
   const pagination = { page, limit };
 
   if (search) {
