@@ -10,6 +10,8 @@ const {
   LICENSE_TYPES,
 } = require("../services/assetService");
 const { purchaseLicense } = require("../services/licenseService");
+const { fileReport, REPORT_REASONS } = require("../services/reportService");
+const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
 
@@ -72,12 +74,17 @@ router.post(
   "/",
   [
     body("id").isInt({ min: 1 }),
-    body("owner").isString().isLength({ min: 56, max: 56 }),
+    body("owner")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
     body("name").isString().trim().isLength({ min: 1, max: 200 }),
     body("description").isString().trim().isLength({ min: 1, max: 2000 }),
     body("assetType").isIn(ASSET_TYPES),
     body("licenseType").isIn(LICENSE_TYPES),
     body("price").isInt({ min: 0 }),
+    body("version").optional().isInt({ min: 1 }),
     body("tags").optional().isArray(),
   ],
   validate,
@@ -96,13 +103,54 @@ router.post(
   "/:id/purchase",
   [
     param("id").isInt({ min: 1 }),
-    body("buyer").isString().isLength({ min: 56, max: 56 }),
+    body("buyer")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    body("assetVersion")
+      .optional()
+      .custom(Number.isInteger)
+      .withMessage("must be an integer")
+      .bail()
+      .custom((value) => value >= 1)
+      .withMessage("must be greater than or equal to 1"),
   ],
   validate,
   asyncHandler(async (req, res) => {
     const result = await purchaseLicense({
       assetId: Number(req.params.id),
       buyer: req.body.buyer,
+      assetVersion: req.body.assetVersion,
+    });
+    res.status(201).json(result);
+  })
+);
+
+/**
+ * POST /api/v1/assets/:id/report
+ * File a moderation report against an asset. Auto-flags the asset once its
+ * report count crosses reportService.FLAG_THRESHOLD.
+ */
+router.post(
+  "/:id/report",
+  [
+    param("id").isInt({ min: 1 }),
+    body("reporter")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    body("reason").isIn(REPORT_REASONS),
+    body("details").optional().isString().trim().isLength({ max: 2000 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await fileReport({
+      assetId: Number(req.params.id),
+      reporter: req.body.reporter,
+      reason: req.body.reason,
+      details: req.body.details,
     });
     res.status(201).json(result);
   })

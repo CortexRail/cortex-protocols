@@ -113,4 +113,17 @@ async function updateStatus(id, status, resolutionNote = null, client) {
   return mapReport(rows[0]);
 }
 
-module.exports = { create, findById, findAll, updateStatus };
+/**
+ * Count every report ever filed against an asset, regardless of status —
+ * used to decide whether the asset has crossed the auto-flagging threshold.
+ */
+async function countForAsset(assetId, client) {
+  const { rows } = await run(
+    `SELECT count(*)::bigint AS total FROM reports WHERE asset_id = $1`,
+    [assetId],
+    client
+  );
+  return Number(rows[0].total);
+}
+
+module.exports = { create, findById, findAll, updateStatus, countForAsset };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 interface Agent {
@@ -24,37 +24,47 @@ interface LeaderboardResponse {
   };
 }
 
-const TABS = [
+type LeaderboardTab = "reputation" | "activity" | "earnings";
+
+const TABS: Array<{ id: LeaderboardTab; label: string; icon: string }> = [
   { id: "reputation", label: "Top Reputation", icon: "⭐" },
   { id: "activity", label: "Most Active", icon: "🔥" },
   { id: "earnings", label: "Highest Earnings", icon: "💰" },
 ];
 
 export default function LeaderboardPage() {
-  const [activeTab, setActiveTab] = useState<"reputation" | "activity" | "earnings">("reputation");
+  const [activeTab, setActiveTab] = useState<LeaderboardTab>("reputation");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchLeaderboard();
-  }, [activeTab]);
-
-  async function fetchLeaderboard() {
-    setLoading(true);
+  const fetchLeaderboard = useCallback(async () => {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/leaderboard?sortBy=${activeTab}&limit=20`
       );
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
-        setAgents(data.data || []);
+        return data.data || [];
       }
     } catch (err) {
       console.error("Failed to fetch leaderboard:", err);
-    } finally {
-      setLoading(false);
     }
-  }
+    return [];
+  }, [activeTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchLeaderboard().then((nextAgents) => {
+      if (cancelled) return;
+      setAgents(nextAgents);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchLeaderboard]);
 
   function getMetricValue(agent: Agent, tab: string) {
     if (tab === "reputation") return `${Math.round(agent.reputation / 100)}%`;
@@ -71,32 +81,35 @@ export default function LeaderboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-black text-white pt-12 px-6 pb-12">
+    <main className="min-h-screen bg-white dark:bg-black text-black dark:text-white pt-20 px-6 pb-12">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-12">
           <Link
             href="/agents"
-            className="text-zinc-400 hover:text-white mb-6 inline-block text-sm"
+            className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white mb-6 inline-block text-sm"
           >
             ← Back to Directory
           </Link>
           <h1 className="text-4xl font-bold mb-2">Agent Leaderboard</h1>
-          <p className="text-zinc-400">
+          <p className="text-zinc-500 dark:text-zinc-400">
             Top performers on Intelligence Rail — updated every 60 seconds
           </p>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-4 mb-8 border-b border-zinc-800">
+        <div className="flex gap-4 mb-8 border-b border-zinc-200 dark:border-zinc-800">
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => {
+                setLoading(true);
+                setActiveTab(tab.id);
+              }}
               className={`px-6 py-4 font-semibold text-sm border-b-2 transition-colors ${
                 activeTab === tab.id
-                  ? "border-purple-500 text-white"
-                  : "border-transparent text-zinc-400 hover:text-white"
+                  ? "border-purple-500 text-black dark:text-white"
+                  : "border-transparent text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white"
               }`}
             >
               {tab.icon} {tab.label}
@@ -107,11 +120,11 @@ export default function LeaderboardPage() {
         {/* Leaderboard Table */}
         {loading ? (
           <div className="text-center py-12">
-            <p className="text-zinc-400">Loading leaderboard...</p>
+            <p className="text-zinc-500 dark:text-zinc-400">Loading leaderboard...</p>
           </div>
         ) : agents.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-zinc-400">No agents found</p>
+            <p className="text-zinc-500 dark:text-zinc-400">No agents found</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -121,10 +134,10 @@ export default function LeaderboardPage() {
                 href={`/agents/${agent.id}`}
                 className="group block"
               >
-                <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-purple-500 transition-colors flex items-center gap-6">
+                <div className="p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:border-purple-500 transition-colors flex items-center gap-6">
                   {/* Rank */}
                   <div className="min-w-fit">
-                    <div className="text-2xl font-bold text-zinc-500 w-10 text-center">
+                    <div className="text-2xl font-bold text-zinc-400 dark:text-zinc-500 w-10 text-center">
                       {idx + 1}
                       {idx === 0 && <span className="text-lg ml-1">🥇</span>}
                       {idx === 1 && <span className="text-lg ml-1">🥈</span>}
@@ -137,12 +150,12 @@ export default function LeaderboardPage() {
                     <h3 className="text-lg font-bold mb-1 group-hover:text-purple-400 transition-colors">
                       {agent.name}
                     </h3>
-                    <p className="text-sm text-zinc-400 mb-2">{agent.description.substring(0, 60)}...</p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">{agent.description.substring(0, 60)}...</p>
                     <div className="flex flex-wrap gap-2">
                       {agent.capabilities.slice(0, 3).map((cap) => (
                         <span
                           key={cap}
-                          className="px-2 py-1 text-xs bg-zinc-800 text-zinc-300 rounded"
+                          className="px-2 py-1 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded"
                         >
                           {cap}
                         </span>
@@ -152,7 +165,7 @@ export default function LeaderboardPage() {
 
                   {/* Metric */}
                   <div className="min-w-fit text-right">
-                    <p className="text-xs text-zinc-500 mb-1">
+                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">
                       {activeTab === "reputation" ? "Reputation" : activeTab === "activity" ? "Transactions" : "Earnings"}
                     </p>
                     <p
@@ -172,8 +185,8 @@ export default function LeaderboardPage() {
         )}
 
         {/* Footer Note */}
-        <div className="mt-12 p-6 bg-zinc-900/50 border border-zinc-800 rounded-lg text-center">
-          <p className="text-sm text-zinc-400">
+        <div className="mt-12 p-6 bg-zinc-50/50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg text-center">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
             Leaderboards update every 60 seconds. Data sourced from on-chain events and indexed in real-time.
           </p>
         </div>

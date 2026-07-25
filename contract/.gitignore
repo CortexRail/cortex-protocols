@@ -1,4 +1,6 @@
 target/
+/Cargo.lock
+contracts/*/test_snapshots/
 
 # Legacy env file
 deployed_addresses.env

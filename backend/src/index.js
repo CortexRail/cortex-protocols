@@ -28,6 +28,9 @@ async function start() {
     );
   });
 
+  const { startPipeline, stopPipeline } = require("./pipeline/EventPipeline");
+  await startPipeline({ intervalMs: 5_000 });
+
   // ── Graceful shutdown ──────────────────────────────────────────────────────
   // Stop accepting connections, let in-flight requests finish, then drain
   // the pg pool so no query is killed mid-transaction.
@@ -39,6 +42,7 @@ async function start() {
 
     server.close(async () => {
       try {
+        await stopPipeline();
         await closePool();
         console.log("[cortex-protocol] database pool closed, bye");
         process.exit(0);

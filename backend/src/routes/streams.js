@@ -8,6 +8,7 @@ const {
   listStreams,
   STREAM_STATUSES,
 } = require("../services/streamService");
+const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
 
@@ -18,8 +19,18 @@ const router = Router();
 router.get(
   "/",
   [
-    query("sender").optional().isString().isLength({ min: 56, max: 56 }),
-    query("recipient").optional().isString().isLength({ min: 56, max: 56 }),
+    query("sender")
+      .optional()
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    query("recipient")
+      .optional()
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
     query("status").optional().isIn(STREAM_STATUSES),
     query("page").optional().isInt({ min: 1 }),
     query("limit").optional().isInt({ min: 1, max: 100 }),
@@ -62,8 +73,16 @@ router.post(
   "/",
   [
     body("id").isInt({ min: 1 }),
-    body("sender").isString().isLength({ min: 56, max: 56 }),
-    body("recipient").isString().isLength({ min: 56, max: 56 }),
+    body("sender")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    body("recipient")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
     body("token").isString(),
     body("deposit").isInt({ min: 1 }),
     body("ratePerSecond").isInt({ min: 1 }),

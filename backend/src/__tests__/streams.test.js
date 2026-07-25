@@ -8,6 +8,10 @@ const {
   OWNER_B,
 } = require("./helpers/testDb");
 
+// Right length (56 chars), right "G" prefix, but an invalid checksum.
+const BAD_CHECKSUM_KEY =
+  "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
 beforeEach(async () => {
   await truncateAll();
 });
@@ -47,6 +51,25 @@ describe("POST /api/v1/streams", () => {
       .send({ id: 1, sender: "short" })
       .expect(422);
   });
+
+  it("rejects a sender/recipient with the right length but an invalid checksum, naming the field", async () => {
+    const stream = buildStream({ sender: BAD_CHECKSUM_KEY });
+    const res = await request(app)
+      .post("/api/v1/streams")
+      .send({
+        id: stream.id,
+        sender: stream.sender,
+        recipient: stream.recipient,
+        token: stream.token,
+        deposit: stream.deposit,
+        ratePerSecond: stream.ratePerSecond,
+        startTime: stream.startTime,
+        endTime: stream.endTime,
+      })
+      .expect(422);
+
+    expect(res.body.details.some((d) => d.path === "sender")).toBe(true);
+  });
 });
 
 describe("GET /api/v1/streams", () => {
@@ -73,6 +96,18 @@ describe("GET /api/v1/streams", () => {
       .get("/api/v1/streams?status=Cancelled")
       .expect(200);
     expect(res.body.data).toHaveLength(0);
+  });
+
+  it("rejects a sender query param with an invalid checksum", async () => {
+    await request(app)
+      .get(`/api/v1/streams?sender=${BAD_CHECKSUM_KEY}`)
+      .expect(422);
+  });
+
+  it("rejects a recipient query param with an invalid checksum", async () => {
+    await request(app)
+      .get(`/api/v1/streams?recipient=${BAD_CHECKSUM_KEY}`)
+      .expect(422);
   });
 });
 

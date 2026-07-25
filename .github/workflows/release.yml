@@ -1,0 +1,59 @@
+name: Release
+
+# Tag-driven releases: pushing a tag like v1.2.3 verifies the version is
+# documented in CHANGELOG.md, extracts that section, and publishes a GitHub
+# release with it. Tags are created locally via scripts/release.sh.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify CHANGELOG entry exists
+        run: |
+          if ! grep -q "^## \[${{ steps.version.outputs.version }}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${{ steps.version.outputs.version }}]' section. Run scripts/release.sh before tagging."
+            exit 1
+          fi
+
+      - name: Verify manifest versions match tag
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          for manifest in backend/package.json frontend/package.json; do
+            found=$(jq -r .version "$manifest")
+            if [ "$found" != "$version" ]; then
+              echo "::error::$manifest is at $found, expected $version. Run scripts/release.sh before tagging."
+              exit 1
+            fi
+          done
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          awk -v ver="${{ steps.version.outputs.version }}" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md
