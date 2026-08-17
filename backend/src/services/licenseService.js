@@ -10,6 +10,7 @@
 const { withTransaction } = require("../db/connection");
 const assetRepository = require("../repositories/assetRepository");
 const licenseRepository = require("../repositories/licenseRepository");
+const contractStateRepository = require("../repositories/contractStateRepository");
 
 // Terms applied when the on-chain contract doesn't dictate them explicitly.
 const DEFAULT_USAGE_BASED_CALLS = 100;
@@ -45,6 +46,10 @@ function httpError(status, message) {
  * @returns {Promise<{ license: object, usageCount: number }>}
  */
 async function purchaseLicense({ assetId, buyer, assetVersion }) {
+  if (await contractStateRepository.isPaused("marketplace")) {
+    throw httpError(503, "marketplace is paused by an operator; license purchases are disabled");
+  }
+
   return withTransaction(async (client) => {
     const asset = await assetRepository.findById(assetId, {}, client);
     if (!asset) {
@@ -129,12 +134,26 @@ async function expireLicense(licenseId) {
   return licenseRepository.expire(licenseId);
 }
 
+/**
+ * Operator revocation: immediately zeroes the metered-call counter so a
+ * usage-based license can't be drawn on further. Used by
+ * `cortex-admin license revoke`.
+ */
+async function revokeLicense(licenseId) {
+  const license = await licenseRepository.updateCallsRemaining(licenseId, 0);
+  if (!license) {
+    throw httpError(404, `License ${licenseId} not found`);
+  }
+  return license;
+}
+
 module.exports = {
   purchaseLicense,
   consumeLicenseCall,
   getLicense,
   listLicensesForBuyer,
   expireLicense,
+  revokeLicense,
   DEFAULT_USAGE_BASED_CALLS,
   SUBSCRIPTION_PERIOD_MS,
 };

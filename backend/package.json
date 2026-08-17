@@ -3,14 +3,20 @@
   "version": "0.1.0",
   "description": "Intelligence Rail backend API — agent discovery, asset indexing, and Stellar integration",
   "main": "src/index.js",
+  "bin": {
+    "cortex-admin": "src/cli/cortex-admin.js"
+  },
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "admin": "node src/cli/cortex-admin.js",
     "lint": "eslint src/",
     "test": "jest --forceExit"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.1.0",
+    "blessed": "^0.1.81",
+    "commander": "^15.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",

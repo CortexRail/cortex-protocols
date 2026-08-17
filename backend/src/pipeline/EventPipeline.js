@@ -71,6 +71,31 @@ async function startPipeline(options = {}) {
   });
 }
 
+/**
+ * Recovery path for `cortex-admin events replay`: re-runs EventProcessor
+ * over already-ingested raw events in an inclusive ledger range. Does not
+ * touch dedup bookkeeping or the live LedgerCursor — this replays history,
+ * it doesn't advance the pipeline's head.
+ *
+ * @returns {Promise<{ replayed: number, failed: Array<{ event: object, error: string }> }>}
+ */
+async function replayLedgerRange(fromLedger, toLedger) {
+  const events = await eventLogRepository.findByLedgerRange(fromLedger, toLedger);
+
+  let replayed = 0;
+  const failed = [];
+  for (const event of events) {
+    try {
+      await EventProcessor.process(event);
+      replayed += 1;
+    } catch (err) {
+      failed.push({ event: { ledger: event.ledger, contractId: event.contractId, txHash: event.txHash }, error: err.message });
+    }
+  }
+
+  return { replayed, failed };
+}
+
 function getMetrics() {
   return pipelineMetrics.getMetrics();
 }
@@ -86,6 +111,7 @@ function getStatus() {
 module.exports = {
   startPipeline,
   stopPipeline,
+  replayLedgerRange,
   getMetrics,
   getDeadLetters,
   getStatus,
