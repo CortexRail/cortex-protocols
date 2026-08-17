@@ -4,6 +4,7 @@
  */
 
 const agentRepository = require("../repositories/agentRepository");
+const agentBanRepository = require("../repositories/agentBanRepository");
 
 const CAPABILITIES = [
   "TextGeneration",
@@ -16,10 +17,19 @@ const CAPABILITIES = [
   "ActionExecution",
 ];
 
+function bannedError(id) {
+  const err = new Error(`agent ${id} is banned and cannot write`);
+  err.status = 403;
+  return err;
+}
+
 /**
  * Index an agent identity after on-chain registration (upsert by id).
  */
 async function registerAgent(agentData) {
+  if (await agentBanRepository.isBanned(agentData.id)) {
+    throw bannedError(agentData.id);
+  }
   return agentRepository.create(agentData);
 }
 
@@ -50,6 +60,9 @@ async function getAgent(id) {
  * Update an agent's reputation score (basis points, 0–10000).
  */
 async function updateAgentReputation(id, reputation) {
+  if (await agentBanRepository.isBanned(id)) {
+    throw bannedError(id);
+  }
   return agentRepository.updateReputation(id, reputation);
 }
 

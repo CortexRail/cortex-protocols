@@ -12,7 +12,9 @@ const { query, closePool } = require("../../db/connection");
  */
 async function truncateAll() {
   await query(
-    "TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets RESTART IDENTITY CASCADE"
+    `TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets,
+       admin_actions, agent_bans, contract_state
+     RESTART IDENTITY CASCADE`
   );
 }
 

@@ -13,10 +13,16 @@ jest.mock("../../repositories/licenseRepository", () => ({
   findByBuyerAndAsset: jest.fn(),
   findAllByBuyer: jest.fn(),
   expire: jest.fn(),
+  updateCallsRemaining: jest.fn(),
+}));
+
+jest.mock("../../repositories/contractStateRepository", () => ({
+  isPaused: jest.fn(),
 }));
 
 const assetRepository = require("../../repositories/assetRepository");
 const licenseRepository = require("../../repositories/licenseRepository");
+const contractStateRepository = require("../../repositories/contractStateRepository");
 const { purchaseLicense } = require("../../services/licenseService");
 
 const ASSET = {
@@ -29,6 +35,7 @@ const ASSET = {
 describe("licenseService asset version selection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    contractStateRepository.isPaused.mockResolvedValue(false);
     assetRepository.findById.mockResolvedValue(ASSET);
     assetRepository.incrementUsage.mockResolvedValue(12);
     licenseRepository.create.mockImplementation(async (license) => ({
@@ -72,6 +79,14 @@ describe("licenseService asset version selection", () => {
       purchaseLicense({ assetId: 42, buyer: "GBUYER", assetVersion })
     ).rejects.toThrow(error);
     expect(assetRepository.incrementUsage).not.toHaveBeenCalled();
+    expect(licenseRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses to purchase while the marketplace contract is paused", async () => {
+    contractStateRepository.isPaused.mockResolvedValue(true);
+
+    await expect(purchaseLicense({ assetId: 42, buyer: "GBUYER" })).rejects.toThrow(/marketplace is paused/);
+    expect(assetRepository.findById).not.toHaveBeenCalled();
     expect(licenseRepository.create).not.toHaveBeenCalled();
   });
 });
