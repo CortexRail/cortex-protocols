@@ -21,7 +21,8 @@ async function getLastProcessedLedger(client) {
   const { rows } = await run(
     `SELECT last_processed_ledger FROM event_cursor WHERE name = $1`,
     [CURSOR_NAME],
-    client
+    client,
+    "read"
   );
   return Number(rows[0]?.last_processed_ledger ?? 0);
 }

@@ -23,7 +23,8 @@ async function getRevenueByOwner(owner, client) {
      GROUP BY a.id, a.name, a.asset_type, a.price
      ORDER BY total_revenue DESC`,
     [owner],
-    client
+    client,
+    "read"
   );
 
   return rows.map((row) => ({

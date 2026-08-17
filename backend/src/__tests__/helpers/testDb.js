@@ -14,6 +14,7 @@ async function truncateAll() {
   await query(
     "TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets RESTART IDENTITY CASCADE"
   );
+  await query("DELETE FROM replica_heartbeat");
 }
 
 // ── Fixture builders ─────────────────────────────────────────────────────────

@@ -67,7 +67,8 @@ async function findById(id, client) {
   const { rows } = await run(
     `SELECT ${COLUMNS} FROM licenses WHERE id = $1`,
     [id],
-    client
+    client,
+    "read"
   );
   return mapLicense(rows[0]);
 }
@@ -83,7 +84,8 @@ async function findByBuyerAndAsset(buyer, assetId, client) {
        AND is_active
        AND (expires_at IS NULL OR expires_at > now())`,
     [buyer, assetId],
-    client
+    client,
+    "read"
   );
   return mapLicense(rows[0]);
 }
@@ -97,7 +99,8 @@ async function findAllByBuyer(buyer, pagination = {}, client) {
   const countResult = await run(
     "SELECT count(*)::bigint AS total FROM licenses WHERE buyer = $1",
     [buyer],
-    client
+    client,
+    "read"
   );
   const total = Number(countResult.rows[0].total);
 
@@ -107,7 +110,8 @@ async function findAllByBuyer(buyer, pagination = {}, client) {
      ORDER BY purchased_at DESC, id DESC
      LIMIT $2 OFFSET $3`,
     [buyer, limit, offset],
-    client
+    client,
+    "read"
   );
 
   return { data: rows.map(mapLicense), meta: buildMeta(total, page, limit) };

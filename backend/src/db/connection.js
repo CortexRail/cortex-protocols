@@ -1,9 +1,14 @@
 /**
  * PostgreSQL connection management.
  *
- * Single shared pg.Pool for the whole process. All database access goes
- * through `query`, `getClient`, or `withTransaction` — repositories must
- * never construct their own pools or clients.
+ * Manages two pools:
+ *   - writePool: primary database for all mutations
+ *   - readPool:  read replica (falls back to primary if READ_REPLICA_URL is unset)
+ *
+ * All database access goes through `query`, `getClient`, or `withTransaction`
+ * — repositories must never construct their own pools or clients.
+ *
+ * For explicit read/write intent, use `queryRead`, `queryWrite`, etc.
  */
 
 const { Pool, types } = require("pg");
@@ -23,13 +28,14 @@ const DEFAULT_POOL_CONFIG = {
   connectionTimeoutMillis: 2_000,
 };
 
-let pool = null;
+let writePool = null;
+let readPool = null;
 
 /**
- * Build the pool configuration from the environment.
- * DATABASE_URL takes precedence; discrete PG* vars are the fallback.
+ * Build pool configuration from environment.
+ * DATABASE_URL (or discrete PG* vars) targets the primary / write pool.
  */
-function buildPoolConfig() {
+function buildPoolConfig(overrideUrl) {
   const config = {
     max: Number(process.env.PG_POOL_MAX) || DEFAULT_POOL_CONFIG.max,
     idleTimeoutMillis:
@@ -40,7 +46,9 @@ function buildPoolConfig() {
       DEFAULT_POOL_CONFIG.connectionTimeoutMillis,
   };
 
-  if (process.env.DATABASE_URL) {
+  if (overrideUrl) {
+    config.connectionString = overrideUrl;
+  } else if (process.env.DATABASE_URL) {
     config.connectionString = process.env.DATABASE_URL;
   } else {
     config.host = process.env.PGHOST || "localhost";
@@ -58,32 +66,77 @@ function buildPoolConfig() {
 }
 
 /**
- * Lazily create (or return) the shared pool.
+ * Lazily create (or return) the write pool (primary).
  */
-function getPool() {
-  if (!pool) {
-    pool = new Pool(buildPoolConfig());
-
-    // Errors on idle clients (e.g. server restart) must not crash the process.
-    pool.on("error", (err) => {
-      console.error("[db] idle client error:", err.message);
+function getWritePool() {
+  if (!writePool) {
+    writePool = new Pool(buildPoolConfig());
+    writePool.on("error", (err) => {
+      console.error("[db] write-pool idle client error:", err.message);
     });
   }
-  return pool;
+  return writePool;
 }
 
 /**
- * Run a single parameterized query on the pool.
+ * Lazily create (or return) the read pool.
+ * Falls back to the primary when READ_REPLICA_URL is not configured.
+ */
+function getReadPool() {
+  if (!readPool) {
+    const replicaUrl = process.env.READ_REPLICA_URL;
+    if (replicaUrl) {
+      readPool = new Pool(buildPoolConfig(replicaUrl));
+      readPool.on("error", (err) => {
+        console.error("[db] read-pool idle client error:", err.message);
+      });
+    }
+  }
+  // If no replica is configured, getReadPool returns the write pool so every
+  // query lands on the primary — safe and zero-config for local dev.
+  return readPool || getWritePool();
+}
+
+/**
+ * Backwards-compatible alias used by the rest of the codebase.
+ */
+function getPool() {
+  return getWritePool();
+}
+
+/**
+ * Run a single parameterized query on the write pool.
  */
 async function query(text, params = []) {
-  return getPool().query(text, params);
+  return getWritePool().query(text, params);
 }
 
 /**
- * Check out a dedicated client. Caller MUST release() it.
+ * Run a single parameterized query on the read pool.
+ */
+async function queryRead(text, params = []) {
+  return getReadPool().query(text, params);
+}
+
+/**
+ * Run a single parameterized query on the write pool (alias for clarity).
+ */
+async function queryWrite(text, params = []) {
+  return getWritePool().query(text, params);
+}
+
+/**
+ * Check out a dedicated client from the write pool. Caller MUST release() it.
  */
 async function getClient() {
-  return getPool().connect();
+  return getWritePool().connect();
+}
+
+/**
+ * Check out a dedicated client from the read pool. Caller MUST release() it.
+ */
+async function getReadClient() {
+  return getReadPool().connect();
 }
 
 /**
@@ -131,12 +184,23 @@ async function healthCheck() {
  * Snapshot of pool utilization for the internal metrics endpoint.
  */
 function getPoolStats() {
-  const p = getPool();
+  const wp = getWritePool();
+  const rp = readPool ? readPool : null;
   return {
-    total: p.totalCount,
-    idle: p.idleCount,
-    waiting: p.waitingCount,
-    max: p.options.max,
+    write: {
+      total: wp.totalCount,
+      idle: wp.idleCount,
+      waiting: wp.waitingCount,
+      max: wp.options.max,
+    },
+    read: rp
+      ? {
+          total: rp.totalCount,
+          idle: rp.idleCount,
+          waiting: rp.waitingCount,
+          max: rp.options.max,
+        }
+      : { note: "using write pool (no replica configured)" },
   };
 }
 
@@ -145,17 +209,27 @@ function getPoolStats() {
  * Safe to call multiple times.
  */
 async function closePool() {
-  if (pool) {
-    const closing = pool;
-    pool = null;
+  if (writePool) {
+    const closing = writePool;
+    writePool = null;
+    await closing.end();
+  }
+  if (readPool) {
+    const closing = readPool;
+    readPool = null;
     await closing.end();
   }
 }
 
 module.exports = {
   getPool,
+  getWritePool,
+  getReadPool,
   query,
+  queryRead,
+  queryWrite,
   getClient,
+  getReadClient,
   withTransaction,
   healthCheck,
   getPoolStats,

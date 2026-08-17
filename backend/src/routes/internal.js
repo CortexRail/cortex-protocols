@@ -2,6 +2,7 @@ const { Router } = require("express");
 const requireAdmin = require("../middleware/requireAdmin");
 const { getPoolStats, healthCheck } = require("../db/connection");
 const { getMetrics, getDeadLetters, getStatus } = require("../pipeline/EventPipeline");
+const { getLagStats } = require("../db/ReplicaLagMonitor");
 
 const router = Router();
 
@@ -12,6 +13,7 @@ router.get("/db-stats", requireAdmin, async (_req, res, next) => {
 
     res.status(status).json({
       pool: getPoolStats(),
+      lag: getLagStats(),
       database,
       timestamp: new Date().toISOString(),
     });
