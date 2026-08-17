@@ -58,7 +58,8 @@ async function findSince(ledger, { limit = 100 } = {}, client) {
      ORDER BY ledger ASC, id ASC
      LIMIT $2`,
     [ledger, limit],
-    client
+    client,
+    "read"
   );
   return rows.map(mapEvent);
 }
@@ -73,7 +74,8 @@ async function findByContractAndTopic(contractId, topic, { limit = 100 } = {}, c
      ORDER BY ledger ASC, id ASC
      LIMIT $3`,
     [contractId, topic, limit],
-    client
+    client,
+    "read"
   );
   return rows.map(mapEvent);
 }
@@ -87,7 +89,8 @@ async function findByUniqueEvent(contractId, ledger, txHash, eventIndex, client)
        AND event_index = $4
      LIMIT 1`,
     [contractId, ledger, txHash || "", eventIndex],
-    client
+    client,
+    "read"
   );
   return rows.map(mapEvent);
 }
@@ -133,7 +136,8 @@ async function getLastLedger(client) {
   const { rows } = await run(
     "SELECT COALESCE(MAX(ledger), 0) AS last_ledger FROM events_log",
     [],
-    client
+    client,
+    "read"
   );
   return Number(rows[0].last_ledger);
 }

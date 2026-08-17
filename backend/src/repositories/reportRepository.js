@@ -45,7 +45,8 @@ async function findById(id, client) {
   const { rows } = await run(
     `SELECT ${COLUMNS} FROM reports WHERE id = $1`,
     [id],
-    client
+    client,
+    "read"
   );
   return mapReport(rows[0]);
 }
@@ -76,7 +77,8 @@ async function findAll(filters = {}, pagination = {}, client) {
   const countResult = await run(
     `SELECT count(*)::bigint AS total FROM reports ${where}`,
     params,
-    client
+    client,
+    "read"
   );
   const total = Number(countResult.rows[0].total);
 
@@ -86,7 +88,8 @@ async function findAll(filters = {}, pagination = {}, client) {
      ORDER BY created_at DESC, id DESC
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
-    client
+    client,
+    "read"
   );
 
   return { data: rows.map(mapReport), meta: buildMeta(total, page, limit) };
@@ -121,7 +124,8 @@ async function countForAsset(assetId, client) {
   const { rows } = await run(
     `SELECT count(*)::bigint AS total FROM reports WHERE asset_id = $1`,
     [assetId],
-    client
+    client,
+    "read"
   );
   return Number(rows[0].total);
 }

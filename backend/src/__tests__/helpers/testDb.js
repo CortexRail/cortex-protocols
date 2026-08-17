@@ -16,6 +16,7 @@ async function truncateAll() {
        admin_actions, agent_bans, contract_state
      RESTART IDENTITY CASCADE`
   );
+  await query("DELETE FROM replica_heartbeat");
 }
 
 // ── Fixture builders ─────────────────────────────────────────────────────────

@@ -52,7 +52,7 @@ describe("migration runner", () => {
     expect(result.applied).toEqual(listMigrationFiles());
   });
 
-  it("created all six domain tables", async () => {
+  it("created all domain tables", async () => {
     const { rows } = await query(`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public'
@@ -66,6 +66,7 @@ describe("migration runner", () => {
       "streams",
       "reports",
       "events_log",
+      "replica_heartbeat",
       "schema_migrations",
     ]) {
       expect(tables).toContain(expected);

@@ -90,7 +90,8 @@ async function findById(id, client) {
   const { rows } = await run(
     `SELECT ${COLUMNS} FROM agents WHERE id = $1`,
     [id],
-    client
+    client,
+    "read"
   );
   return mapAgent(rows[0]);
 }
@@ -124,7 +125,8 @@ async function findAll(filters = {}, pagination = {}, client) {
   const countResult = await run(
     `SELECT count(*)::bigint AS total FROM agents ${where}`,
     params,
-    client
+    client,
+    "read"
   );
   const total = Number(countResult.rows[0].total);
 
@@ -134,7 +136,8 @@ async function findAll(filters = {}, pagination = {}, client) {
      ORDER BY registered_at DESC, id DESC
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
-    client
+    client,
+    "read"
   );
 
   return { data: rows.map(mapAgent), meta: buildMeta(total, page, limit) };

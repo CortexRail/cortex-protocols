@@ -95,7 +95,8 @@ async function findById(id, client) {
   const { rows } = await run(
     `SELECT ${COLUMNS} FROM streams WHERE id = $1`,
     [id],
-    client
+    client,
+    "read"
   );
   return mapStream(rows[0]);
 }
@@ -126,7 +127,8 @@ async function findAll(filters = {}, pagination = {}, client) {
   const countResult = await run(
     `SELECT count(*)::bigint AS total FROM streams ${where}`,
     params,
-    client
+    client,
+    "read"
   );
   const total = Number(countResult.rows[0].total);
 
@@ -136,7 +138,8 @@ async function findAll(filters = {}, pagination = {}, client) {
      ORDER BY indexed_at DESC, id DESC
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
-    client
+    client,
+    "read"
   );
 
   return { data: rows.map(mapStream), meta: buildMeta(total, page, limit) };
@@ -195,7 +198,8 @@ async function findAndLockById(id, client) {
   const { rows } = await run(
     `SELECT ${COLUMNS} FROM streams WHERE id = $1 FOR UPDATE`,
     [id],
-    client
+    client,
+    "read"
   );
   return mapStream(rows[0]);
 }
@@ -218,7 +222,8 @@ async function findStreamsToSettle(batchSize = 25, client) {
   const { rows } = await run(
     `SELECT ${COLUMNS} FROM streams WHERE status = 'Active' AND calls_used >= $1`,
     [batchSize],
-    client
+    client,
+    "read"
   );
   return rows.map(mapStream);
 }
