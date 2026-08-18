@@ -58,7 +58,8 @@ async function findSince(ledger, { limit = 100 } = {}, client) {
      ORDER BY ledger ASC, id ASC
      LIMIT $2`,
     [ledger, limit],
-    client
+    client,
+    "read"
   );
   return rows.map(mapEvent);
 }
@@ -73,7 +74,8 @@ async function findByContractAndTopic(contractId, topic, { limit = 100 } = {}, c
      ORDER BY ledger ASC, id ASC
      LIMIT $3`,
     [contractId, topic, limit],
-    client
+    client,
+    "read"
   );
   return rows.map(mapEvent);
 }
@@ -87,7 +89,8 @@ async function findByUniqueEvent(contractId, ledger, txHash, eventIndex, client)
        AND event_index = $4
      LIMIT 1`,
     [contractId, ledger, txHash || "", eventIndex],
-    client
+    client,
+    "read"
   );
   return rows.map(mapEvent);
 }
@@ -96,11 +99,45 @@ async function findByUniqueEvent(contractId, ledger, txHash, eventIndex, client)
  * Highest ledger seen so far (0 when the log is empty) — the event
  * listener resumes from here after a restart.
  */
+/**
+ * Every logged event within an inclusive ledger range, oldest first — used
+ * by `cortex-admin events replay` to re-run already-ingested raw events
+ * through the processor after fixing a processing bug.
+ */
+async function findByLedgerRange(fromLedger, toLedger, client) {
+  const { rows } = await run(
+    `SELECT ${COLUMNS} FROM events_log
+     WHERE ledger >= $1 AND ledger <= $2
+     ORDER BY ledger ASC, id ASC`,
+    [fromLedger, toLedger],
+    client
+  );
+  return rows.map(mapEvent);
+}
+
+/**
+ * Most recent events logged for a contract, newest first — used by
+ * `cortex-admin stream inspect` to show recent on-chain activity for the
+ * micropayments contract alongside the indexed stream row.
+ */
+async function findRecentByContract(contractId, { limit = 20 } = {}, client) {
+  const { rows } = await run(
+    `SELECT ${COLUMNS} FROM events_log
+     WHERE contract_id = $1
+     ORDER BY ledger DESC, id DESC
+     LIMIT $2`,
+    [contractId, limit],
+    client
+  );
+  return rows.map(mapEvent);
+}
+
 async function getLastLedger(client) {
   const { rows } = await run(
     "SELECT COALESCE(MAX(ledger), 0) AS last_ledger FROM events_log",
     [],
-    client
+    client,
+    "read"
   );
   return Number(rows[0].last_ledger);
 }
@@ -110,5 +147,7 @@ module.exports = {
   findSince,
   findByContractAndTopic,
   findByUniqueEvent,
+  findByLedgerRange,
+  findRecentByContract,
   getLastLedger,
 };

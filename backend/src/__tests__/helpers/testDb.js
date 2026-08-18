@@ -12,8 +12,11 @@ const { query, closePool } = require("../../db/connection");
  */
 async function truncateAll() {
   await query(
-    "TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets RESTART IDENTITY CASCADE"
+    `TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets,
+       admin_actions, agent_bans, contract_state, dispute_votes, disputes, agent_stakes
+     RESTART IDENTITY CASCADE`
   );
+  await query("DELETE FROM replica_heartbeat");
 }
 
 // ── Fixture builders ─────────────────────────────────────────────────────────

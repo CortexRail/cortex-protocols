@@ -277,7 +277,7 @@ impl MicropaymentsContract {
         let now = env.ledger().timestamp();
 
         for id in stream_ids.iter() {
-            if let Some(mut stream) = streams.get(id.clone()) {
+            if let Some(mut stream) = streams.get(id) {
                 assert!(stream.recipient == recipient, "not the stream recipient");
                 let amount = stream.claimable(now);
                 if amount > 0 {
@@ -292,8 +292,8 @@ impl MicropaymentsContract {
                         stream.status = StreamStatus::Completed;
                     }
 
-                    streams.set(id.clone(), stream.clone());
-                    settled_amounts.set(id.clone(), amount);
+                    streams.set(id, stream.clone());
+                    settled_amounts.set(id, amount);
 
                     env.events()
                         .publish((symbol_short!("WITHDRAWN"), recipient.clone()), (id, amount));
@@ -321,7 +321,7 @@ impl MicropaymentsContract {
         let now = env.ledger().timestamp();
 
         for id in stream_ids.iter() {
-            match streams.get(id.clone()) {
+            match streams.get(id) {
                 Some(s) => {
                     result.set(id, s.claimable(now));
                 }

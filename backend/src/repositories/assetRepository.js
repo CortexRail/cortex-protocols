@@ -123,6 +123,7 @@ async function findById(id, { includeInactive = false } = {}, client) {
      WHERE id = $1 ${includeInactive ? "" : "AND is_active"}`,
     [id],
     client,
+    "read"
   );
   return mapAsset(rows[0]);
 }
@@ -175,6 +176,7 @@ async function findAll(filters = {}, pagination = {}, client) {
     `SELECT count(*)::bigint AS total FROM assets ${where}`,
     params,
     client,
+    "read"
   );
   const total = Number(countResult.rows[0].total);
 
@@ -185,6 +187,7 @@ async function findAll(filters = {}, pagination = {}, client) {
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
     client,
+    "read"
   );
 
   return { data: rows.map(mapAsset), meta: buildMeta(total, page, limit) };
@@ -228,6 +231,7 @@ async function search(queryText, filters = {}, pagination = {}, client) {
      ORDER BY created_at DESC, id DESC`,
     params,
     client,
+    "read"
   );
 
   // Apply advanced search with TF-IDF scoring and fuzzy matching
@@ -276,6 +280,7 @@ async function advancedSearchOnly(
      ORDER BY created_at DESC, id DESC`,
     params,
     client,
+    "read"
   );
 
   // Apply advanced search with TF-IDF scoring and fuzzy matching

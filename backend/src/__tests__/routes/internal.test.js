@@ -31,7 +31,9 @@ describe("GET /api/v1/internal/db-stats", () => {
       .set("x-admin-key", ADMIN_KEY)
       .expect(200);
 
-    expect(res.body.pool).toEqual(
+    // Since read-replica routing landed the payload reports the write pool and
+    // the read pool separately.
+    expect(res.body.pool.write).toEqual(
       expect.objectContaining({
         max: expect.any(Number),
         total: expect.any(Number),
@@ -39,7 +41,8 @@ describe("GET /api/v1/internal/db-stats", () => {
         waiting: expect.any(Number),
       })
     );
-    expect(res.body.pool.max).toBe(20);
+    expect(res.body.pool.write.max).toBe(20);
+    expect(res.body.pool.read).toBeDefined();
     expect(res.body.database.healthy).toBe(true);
     expect(typeof res.body.database.latencyMs).toBe("number");
     expect(res.body.timestamp).toBeDefined();

@@ -11,6 +11,9 @@ see `.github/CONTRIBUTING.md` for the release process.
 
 ### Added
 
+- Freighter wallet connect in the site header: connect/disconnect flow, a
+  truncated address once connected, and a guided install link when the
+  Freighter extension is missing (frontend)
 - Stream dashboard UI at `/streams` for viewing active payment streams with
   live progress, status filters, and volume stat tiles (frontend)
 - `GET /health/contracts` deep health check reporting Soroban RPC / Horizon

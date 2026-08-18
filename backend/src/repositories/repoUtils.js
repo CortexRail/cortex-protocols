@@ -5,15 +5,26 @@
  * function accepts an optional trailing `client` argument (a checked-out
  * pg PoolClient) so it can participate in a caller-managed transaction;
  * without it, queries run directly on the shared pool.
+ *
+ * An optional `intent` parameter ("read" | "write") routes to the
+ * appropriate pool when no explicit client is provided.
  */
 
 const db = require("../db/connection");
 
 /**
  * Execute a query on the given client if provided, otherwise on the pool.
+ * When no client is supplied, `intent` selects the read or write pool.
+ *
+ * @param {string} text - SQL text
+ * @param {Array} [params] - Bind parameters
+ * @param {*} [client] - Checked-out pg PoolClient (overrides intent)
+ * @param {"read"|"write"} [intent] - Pool selection hint (default: write)
  */
-function run(text, params, client) {
-  return client ? client.query(text, params) : db.query(text, params);
+function run(text, params, client, intent) {
+  if (client) return client.query(text, params);
+  if (intent === "read") return db.queryRead(text, params);
+  return db.query(text, params);
 }
 
 /**

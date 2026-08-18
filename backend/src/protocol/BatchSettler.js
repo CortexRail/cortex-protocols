@@ -109,6 +109,52 @@ async function settleOffline() {
 }
 
 /**
+ * Force-settle a single stream outside the normal batch schedule (used by
+ * `cortex-admin stream force-settle` to unstick a stream that hasn't yet
+ * crossed the calls_used threshold `runSettlement` waits for).
+ *
+ * Mirrors runSettlement/settleOffline's per-stream logic without the
+ * calls_used >= 25 gate, and throws instead of silently skipping so the CLI
+ * command can report a clear failure.
+ */
+async function forceSettleStream(id) {
+  const keypair = getServerKeypair();
+
+  return withTransaction(async (client) => {
+    const locked = await streamRepository.findAndLockById(id, client);
+    if (!locked) {
+      throw new Error(`stream ${id} not found`);
+    }
+    if (locked.status !== "Active") {
+      throw new Error(`stream ${id} is not Active (status: ${locked.status})`);
+    }
+
+    if (keypair) {
+      const contractId = CONTRACT_IDS.micropayments;
+      if (!contractId) {
+        throw new Error("micropayments contract not configured; cannot force-settle on-chain");
+      }
+      const recipientSc = Address.fromString(keypair.publicKey()).toScVal();
+      const streamIdsSc = nativeToScVal([BigInt(locked.id)]);
+      await invokeContract(contractId, "batch_settle", [recipientSc, streamIdsSc], keypair);
+      await streamRepository.updateCalls(id, locked.callsRemaining, 0, client);
+      return streamRepository.findById(id, client);
+    }
+
+    // Offline/test fallback — mirrors settleOffline's mock withdrawal.
+    const elapsed = Math.floor(Date.now() / 1000) - locked.startTime;
+    const claimable = Math.min(locked.deposit - locked.withdrawn, elapsed * locked.ratePerSecond);
+    const settledAmount = claimable > 0 ? claimable : 0;
+
+    await streamRepository.updateCalls(id, locked.callsRemaining, 0, client);
+    if (settledAmount > 0) {
+      await streamRepository.recordWithdrawal(id, settledAmount, client);
+    }
+    return streamRepository.findById(id, client);
+  });
+}
+
+/**
  * Start the BatchSettler daemon.
  */
 function start(intervalMs = 60_000) {
@@ -132,4 +178,5 @@ module.exports = {
   start,
   stop,
   runSettlement,
+  forceSettleStream,
 };

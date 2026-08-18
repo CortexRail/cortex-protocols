@@ -81,8 +81,8 @@ describe("withTransaction", () => {
     // afterwards the pool must be fully idle
     const { getPoolStats } = require("../../db/connection");
     const stats = getPoolStats();
-    expect(stats.waiting).toBe(0);
-    expect(stats.idle).toBe(stats.total);
+    expect(stats.write.waiting).toBe(0);
+    expect(stats.write.idle).toBe(stats.write.total);
   });
 });
 

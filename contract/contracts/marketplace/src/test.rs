@@ -29,8 +29,8 @@ fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, token::StellarAs
 /// by repeating the character `'a'` (1 byte each in UTF-8).
 fn str_of_len(env: &Env, n: usize) -> String {
     extern crate std;
-    let s = std::string::String::from_utf8(std::vec![b'a'; n]).unwrap();
-    String::from_str(env, &s)
+    let raw: std::vec::Vec<u8> = std::vec![b'a'; n];
+    String::from_bytes(env, &raw)
 }
 
 // ── Existing happy-path tests (updated to unwrap Result) ──────────────────────
