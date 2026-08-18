@@ -11,6 +11,7 @@ const {
   getReputationHistory,
   getActivityFeed,
   getLeaderboard,
+  getReputationTimeline,
   CAPABILITIES,
 } = require("../services/agentService");
 
@@ -131,6 +132,25 @@ router.get(
       meta: { agentId: req.params.id, count: history.length },
     });
   }
+);
+
+/**
+ * GET /api/v1/agents/:id/reputation-timeline
+ * Decay curve, dispute markers, and staked collateral for an agent.
+ */
+router.get(
+  "/:id/reputation-timeline",
+  [param("id").isInt({ min: 1 }), query("points").optional().isInt({ min: 2, max: 200 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const timeline = await getReputationTimeline(req.params.id, {
+      points: req.query.points ? Number(req.query.points) : 30,
+    });
+    if (!timeline) {
+      return res.status(404).json({ error: "Agent not found" });
+    }
+    res.json(timeline);
+  })
 );
 
 /**

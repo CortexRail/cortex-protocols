@@ -5,6 +5,9 @@
 
 const agentRepository = require("../repositories/agentRepository");
 const agentBanRepository = require("../repositories/agentBanRepository");
+const agentStakeRepository = require("../repositories/agentStakeRepository");
+const disputeRepository = require("../repositories/disputeRepository");
+const reputationEngine = require("./reputationEngine");
 
 const CAPABILITIES = [
   "TextGeneration",
@@ -35,6 +38,8 @@ async function registerAgent(agentData) {
 
 /**
  * Discover active agents with optional filters and pagination.
+ *
+ * Scores are decayed on read, so a listing never shows a stale snapshot.
  */
 async function listAgents({
   capability,
@@ -43,17 +48,54 @@ async function listAgents({
   page = 1,
   limit = 20,
 } = {}) {
-  return agentRepository.findAll(
+  const result = await agentRepository.findAll(
     { capability, minReputation, search },
     { page, limit }
   );
+  return { ...result, data: reputationEngine.withCurrentReputations(result.data) };
 }
 
 /**
  * Get a single agent by ID (active or not — callers inspect isActive).
  */
 async function getAgent(id) {
-  return agentRepository.findById(id);
+  const agent = await agentRepository.findById(id);
+  return agent ? reputationEngine.withCurrentReputation(agent) : agent;
+}
+
+/**
+ * Reputation over time for an agent: the decay curve since its score was last
+ * settled, the disputes its owner is involved in as markers, and the stake
+ * backing it.
+ */
+async function getReputationTimeline(id, { points = 30, nowMs = Date.now() } = {}) {
+  const agent = await agentRepository.findById(id);
+  if (!agent) return null;
+
+  const [disputes, stake] = await Promise.all([
+    disputeRepository.findByAddress(agent.owner, { page: 1, limit: 100 }),
+    agentStakeRepository.findByAddress(agent.owner),
+  ]);
+
+  return {
+    agentId: agent.id,
+    owner: agent.owner,
+    baseReputation: agent.reputation,
+    currentReputation: reputationEngine.currentReputation(agent, nowMs),
+    reputationUpdatedAt: agent.reputationUpdatedAt,
+    config: reputationEngine.getConfig(),
+    curve: reputationEngine.decayCurve(agent, { points, nowMs }),
+    disputes: disputes.data.map((dispute) => ({
+      id: dispute.id,
+      status: dispute.status,
+      outcome: dispute.outcome,
+      openedAt: dispute.openedAt,
+      resolvedAt: dispute.resolvedAt,
+      slashedAmount: dispute.slashedAmount,
+      role: dispute.respondent === agent.owner ? "respondent" : "complainant",
+    })),
+    stake: stake ?? { agentAddress: agent.owner, amount: 0, slashed: 0 },
+  };
 }
 
 /**
@@ -77,6 +119,7 @@ module.exports = {
   registerAgent,
   listAgents,
   getAgent,
+  getReputationTimeline,
   updateAgentReputation,
   deactivateAgent,
   CAPABILITIES,

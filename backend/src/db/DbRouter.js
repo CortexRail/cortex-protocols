@@ -81,14 +81,19 @@ async function route(functionName, intent, fn) {
   }
 
   // Read path — prefer the replica but fall back to the primary.
-  let client;
   try {
-    client = await getReadClient();
-    return await fn(client);
+    const client = await getReadClient();
+    try {
+      return await fn(client);
+    } finally {
+      // The connection must go back to the pool on the success path too —
+      // leaking it here keeps the pool from ever draining, so a checked-out
+      // client would hang `closePool()` on shutdown.
+      client.release();
+    }
   } catch (err) {
     // If the read pool connection fails, fall back to the write pool.
     console.warn("[db-router] read pool failed, falling back to primary:", err.message);
-    if (client) client.release();
     const writeClient = await getClient();
     try {
       return await fn(writeClient);

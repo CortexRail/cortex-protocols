@@ -3,6 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import ReputationTimeline from "./ReputationTimeline";
+import DisputeList from "./DisputeList";
+import StakeBadge from "./StakeBadge";
+import {
+  fetchAgentDisputes,
+  fetchReputationTimeline,
+  type Dispute,
+  type ReputationTimelineData,
+} from "@/lib/reputation";
 
 interface Agent {
   id: number;
@@ -47,6 +56,9 @@ export default function AgentProfilePage() {
   const [reputationHistory, setReputationHistory] = useState<ReputationHistoryEntry[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [activeTab, setActiveTab] = useState<"overview" | "reputation" | "activity">("overview");
+  const [timeline, setTimeline] = useState<ReputationTimelineData | null>(null);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [reputationLoading, setReputationLoading] = useState(true);
   const [voteScore, setVoteScore] = useState(50);
   const [loading, setLoading] = useState(true);
 
@@ -90,6 +102,28 @@ export default function AgentProfilePage() {
       console.error("Failed to fetch activity:", err);
     }
     return null;
+  }, [agentId]);
+
+  // Decay curve, dispute markers and stake — the economic view of the agent.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const nextTimeline = await fetchReputationTimeline(agentId);
+      if (cancelled) return;
+      setTimeline(nextTimeline);
+
+      if (nextTimeline?.owner) {
+        const nextDisputes = await fetchAgentDisputes(nextTimeline.owner);
+        if (cancelled) return;
+        setDisputes(nextDisputes?.data ?? []);
+      }
+      setReputationLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [agentId]);
 
   useEffect(() => {
@@ -189,6 +223,9 @@ export default function AgentProfilePage() {
             <p className={`text-3xl font-bold ${getRepColor(avgRep)}`}>
               {avgRep}%
             </p>
+            <div className="mt-2 flex justify-end">
+              <StakeBadge stake={timeline?.stake ?? null} />
+            </div>
           </div>
         </div>
 
@@ -250,6 +287,15 @@ export default function AgentProfilePage() {
         {/* Tab Content */}
         {activeTab === "reputation" && (
           <div className="space-y-6">
+            <ReputationTimeline timeline={timeline} loading={reputationLoading} />
+
+            <DisputeList
+              agentId={agentId}
+              owner={timeline?.owner ?? agent.owner}
+              disputes={disputes}
+              loading={reputationLoading}
+            />
+
             {/* Reputation Chart */}
             <div className="p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg">
               <h3 className="font-semibold mb-4">Reputation History</h3>

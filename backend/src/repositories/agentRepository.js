@@ -12,8 +12,9 @@ const {
 } = require("./repoUtils");
 
 const COLUMNS = `
-  id, owner, name, description, capabilities, reputation,
-  total_transactions, is_active, registered_at, indexed_at, updated_at
+  id, owner, name, description, capabilities, reputation, reputation_updated_at,
+  stake_amount, stake_slashed, total_transactions, is_active, registered_at,
+  indexed_at, updated_at
 `;
 
 function mapAgent(row) {
@@ -25,6 +26,9 @@ function mapAgent(row) {
     description: row.description,
     capabilities: row.capabilities,
     reputation: row.reputation,
+    reputationUpdatedAt: toMs(row.reputation_updated_at),
+    stakeAmount: Number(row.stake_amount ?? 0),
+    stakeSlashed: Number(row.stake_slashed ?? 0),
     totalTransactions: row.total_transactions,
     isActive: row.is_active,
     registeredAt: toMs(row.registered_at),
@@ -145,16 +149,59 @@ async function findAll(filters = {}, pagination = {}, client) {
 
 /**
  * Set an agent's reputation (basis points, 0–10000 enforced by CHECK).
+ *
+ * `options.reputationUpdatedAt` (epoch ms) restarts the decay clock — pass it
+ * whenever the score being written is a *settled* one, so reputationEngine
+ * does not decay the same interval twice.
  */
-async function updateReputation(id, reputation, client) {
+async function updateReputation(id, reputation, client, options = {}) {
+  const { reputationUpdatedAt } = options;
+
   const { rows } = await run(
-    `UPDATE agents SET reputation = $2, updated_at = now()
-     WHERE id = $1
+    `UPDATE agents
+        SET reputation            = $2,
+            reputation_updated_at = COALESCE(
+              to_timestamp($3::double precision / 1000.0),
+              reputation_updated_at
+            ),
+            updated_at            = now()
+      WHERE id = $1
      RETURNING ${COLUMNS}`,
-    [id, reputation],
+    [id, reputation, msParam(reputationUpdatedAt)],
     client
   );
   return mapAgent(rows[0]);
+}
+
+/**
+ * Every agent registered by an owner address.
+ */
+async function findByOwner(owner, client) {
+  const { rows } = await run(
+    `SELECT ${COLUMNS} FROM agents WHERE owner = $1 ORDER BY id ASC`,
+    [owner],
+    client,
+    "read"
+  );
+  return rows.map(mapAgent);
+}
+
+/**
+ * Mirror an owner's staked collateral onto each of their agents, so discovery
+ * queries can filter and sort on stake without joining `agent_stakes`.
+ */
+async function updateStakeForOwner(owner, { amount = 0, slashed = 0 } = {}, client) {
+  const { rows } = await run(
+    `UPDATE agents
+        SET stake_amount  = $2,
+            stake_slashed = $3,
+            updated_at    = now()
+      WHERE owner = $1
+     RETURNING ${COLUMNS}`,
+    [owner, amount, slashed],
+    client
+  );
+  return rows.map(mapAgent);
 }
 
 /**
@@ -170,4 +217,12 @@ async function deactivate(id, client) {
   return rowCount > 0;
 }
 
-module.exports = { create, findById, findAll, updateReputation, deactivate };
+module.exports = {
+  create,
+  findById,
+  findAll,
+  findByOwner,
+  updateReputation,
+  updateStakeForOwner,
+  deactivate,
+};
