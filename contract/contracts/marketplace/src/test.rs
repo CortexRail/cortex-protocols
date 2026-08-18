@@ -28,20 +28,10 @@ fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, token::StellarAs
 /// Build a `soroban_sdk::String` from a `&str` that is exactly `n` bytes long
 /// by repeating the character `'a'` (1 byte each in UTF-8).
 fn str_of_len(env: &Env, n: usize) -> String {
-    // Build the string in a std buffer (we are in test context so std is fine
-    // via the test harness).
-    let mut s = soroban_sdk::vec![env]; // not used — just for clarity
-    let _ = s; // suppress warning
-    // Use the bytes constructor via a fixed-length slice approach.
-    // The simplest portable way in soroban tests is to construct from a literal
-    // and then rely on the fact that the SDK accepts &str slices in test mode.
-    // We abuse `String::from_str` which is available in test builds.
-    let raw: soroban_sdk::bytes::Bytes = {
-        // Build a native Vec<u8> of `n` 'a' bytes then hand it to the SDK.
-        extern crate std;
-        let v: std::vec::Vec<u8> = std::vec![b'a'; n];
-        soroban_sdk::bytes::Bytes::from_slice(env, &v)
-    };
+    // Built in a std buffer — the test harness links std even though the
+    // contract itself is `#![no_std]`.
+    extern crate std;
+    let raw: std::vec::Vec<u8> = std::vec![b'a'; n];
     String::from_bytes(env, &raw)
 }
 
@@ -69,8 +59,7 @@ fn test_list_and_get_asset() {
             &AssetType::Prompt,
             &LicenseType::Perpetual,
             &5_000_000i128, // 0.5 XLM
-        )
-        .unwrap();
+        );
 
     assert_eq!(asset_id, 1);
     assert_eq!(client.asset_count(), 1);
@@ -242,8 +231,7 @@ fn test_multiple_assets() {
                 &AssetType::Workflow,
                 &LicenseType::UsageBased,
                 &1_000_000i128,
-            )
-            .unwrap();
+            );
     }
 
     assert_eq!(client.asset_count(), 5);
@@ -263,8 +251,7 @@ fn test_delist_asset() {
             &AssetType::Evaluator,
             &LicenseType::Perpetual,
             &2_000_000i128,
-        )
-        .unwrap();
+        );
 
     client.delist_asset(&admin, &asset_id);
 
@@ -286,8 +273,7 @@ fn test_update_price() {
             &AssetType::MemorySystem,
             &LicenseType::Subscription,
             &10_000_000i128,
-        )
-        .unwrap();
+        );
 
     client.update_price(&admin, &asset_id, &15_000_000i128);
 
@@ -313,8 +299,7 @@ fn test_purchase_license() {
             &AssetType::ReasoningChain,
             &LicenseType::Perpetual,
             &10_000_000i128,
-        )
-        .unwrap();
+        );
 
     assert!(!client.has_license(&buyer, &asset_id));
 
@@ -604,8 +589,7 @@ fn test_has_no_license_by_default() {
             &AssetType::Tool,
             &LicenseType::UsageBased,
             &3_000_000i128,
-        )
-        .unwrap();
+        );
 
     assert!(!client.has_license(&stranger, &1));
 }
