@@ -1,0 +1,14 @@
+[
+  {
+    "publicKey": "GA6HCMBLTZS5VYYBCATRBRZ3BZJMAFUDKYYF6AH6MVCMGWMRDNSWJPIH",
+    "role": "readonly"
+  },
+  {
+    "publicKey": "GBHPPBAY65KWA5AAJTRNHR2M7C5NIT4RLZLDBKDX7HZJEC7JOMKZOD5D",
+    "role": "moderator"
+  },
+  {
+    "publicKey": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+    "role": "superadmin"
+  }
+]

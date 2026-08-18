@@ -1,0 +1,39 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`TUI dashboard rendering renders all four panels from a live-data snapshot 1`] = `
+{
+  "deadLetters": "{bold}Dead-lettered settlements{/bold}
+ledger 481900  processor threw: unknown topic",
+  "disputes": "{bold}Open disputes{/bold}
+#5  asset 101  Plagiarism  2023-11-14 22:13:20
+#6  asset 102  Spam  2023-11-14 22:15:00",
+  "pipeline": "{bold}Pipeline{/bold}
+last processed ledger: 481920
+events/min:            12
+p99 latency:            84ms
+queue depth:            3
+dead letters:           1
+circuit breaker:        closed",
+  "recentActions": "{bold}Recent admin actions{/bold}
+2023-11-14 22:16:40  GOPERATOR1  stream force-settle  {green-fg}ok{/green-fg}
+2023-11-14 22:18:20  GOPERATOR2  agent ban  {red-fg}err{/red-fg}",
+}
+`;
+
+exports[`TUI dashboard rendering renders empty-state placeholders when there's nothing to show 1`] = `
+{
+  "deadLetters": "{bold}Dead-lettered settlements{/bold}
+(none)",
+  "disputes": "{bold}Open disputes{/bold}
+(none)",
+  "pipeline": "{bold}Pipeline{/bold}
+last processed ledger: 0
+events/min:            0
+p99 latency:            0ms
+queue depth:            0
+dead letters:           0
+circuit breaker:        closed",
+  "recentActions": "{bold}Recent admin actions{/bold}
+(none)",
+}
+`;

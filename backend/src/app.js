@@ -7,10 +7,19 @@ const rateLimit = require("express-rate-limit");
 const assetsRouter = require("./routes/assets");
 const agentsRouter = require("./routes/agents");
 const streamsRouter = require("./routes/streams");
+const licensesRouter = require("./routes/licenses");
+const analyticsRouter = require("./routes/analytics");
 const stellarRouter = require("./routes/stellar");
+const internalRouter = require("./routes/internal");
+const healthRouter = require("./routes/health");
+const adminRouter = require("./routes/admin");
+const complianceRouter = require("./routes/compliance");
+const protocolRouter = require("./routes/protocol");
+const disputesRouter = require("./routes/disputes");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
+
 
 // ── Security & logging ────────────────────────────────────────────────────────
 app.use(helmet());
@@ -46,12 +55,20 @@ app.get("/health", (_req, res) => {
     network: process.env.STELLAR_NETWORK || "testnet",
   });
 });
+app.use("/health", healthRouter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/v1/assets", assetsRouter);
 app.use("/api/v1/agents", agentsRouter);
 app.use("/api/v1/streams", streamsRouter);
+app.use("/api/v1/licenses", licensesRouter);
+app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/stellar", stellarRouter);
+app.use("/api/v1/internal", internalRouter);
+app.use("/api/v1/admin", adminRouter);
+app.use("/api/v1/admin", complianceRouter);
+app.use("/api/v1/protocol", protocolRouter);
+app.use("/api/v1/disputes", disputesRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);

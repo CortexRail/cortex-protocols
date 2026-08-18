@@ -1,5 +1,9 @@
 # Intelligence Rail (Cortex Protocol)
 
+[![Backend CI](https://github.com/JuanVP2/cortex-protocols/actions/workflows/backend.yml/badge.svg)](https://github.com/JuanVP2/cortex-protocols/actions/workflows/backend.yml)
+[![Contract CI](https://github.com/JuanVP2/cortex-protocols/actions/workflows/contract.yml/badge.svg)](https://github.com/JuanVP2/cortex-protocols/actions/workflows/contract.yml)
+[![Frontend CI](https://github.com/JuanVP2/cortex-protocols/actions/workflows/frontend.yml/badge.svg)](https://github.com/JuanVP2/cortex-protocols/actions/workflows/frontend.yml)
+
 **Open infrastructure for autonomous agents to discover, exchange, and evolve intelligence assets through programmable micropayments.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

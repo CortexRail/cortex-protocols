@@ -1,4 +1,8 @@
-const { Networks, SorobanRpc, Horizon } = require("@stellar/stellar-sdk");
+const { Networks, Horizon, ...sdk } = require("@stellar/stellar-sdk");
+
+// @stellar/stellar-sdk v13 renamed the `SorobanRpc` namespace to `rpc`.
+// Support both so the config works across SDK versions.
+const SorobanRpc = sdk.rpc || sdk.SorobanRpc;
 
 const NETWORK = process.env.STELLAR_NETWORK || "testnet";
 

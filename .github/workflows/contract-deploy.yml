@@ -1,0 +1,325 @@
+name: Contract Deploy — Testnet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "contract/**"
+      - ".github/workflows/contract-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      force_redeploy:
+        description: "Force redeploy even if address exists"
+        required: false
+        default: "false"
+        type: boolean
+
+concurrency:
+  group: contract-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  STELLAR_NETWORK: testnet
+  STELLAR_RPC_URL: https://soroban-testnet.stellar.org
+  STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+  STELLAR_PASSPHRASE: "Test SDF Network ; September 2015"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── 1. Build & Test ───────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contract
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contract/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run contract unit tests
+        run: cargo test --all --release
+
+      - name: Build WASM artifacts
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Verify WASM files exist
+        run: |
+          ls -lh target/wasm32-unknown-unknown/release/*.wasm
+          for wasm in marketplace micropayments agent_registry; do
+            if [ ! -f "target/wasm32-unknown-unknown/release/${wasm}.wasm" ]; then
+              echo "ERROR: ${wasm}.wasm not found!"
+              exit 1
+            fi
+          done
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-artifacts-${{ github.sha }}
+          path: contract/target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 7
+
+  # ── 2. Deploy to Testnet ──────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Testnet
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    environment: testnet
+    defaults:
+      run:
+        working-directory: contract
+
+    outputs:
+      marketplace_address: ${{ steps.extract-addresses.outputs.marketplace }}
+      micropayments_address: ${{ steps.extract-addresses.outputs.micropayments }}
+      agent_registry_address: ${{ steps.extract-addresses.outputs.agent_registry }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contract/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          stellar version
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release --quiet
+
+      - name: Deploy contracts
+        env:
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_DEPLOYER_SECRET_KEY }}
+          FORCE_REDEPLOY: ${{ inputs.force_redeploy || 'false' }}
+        run: |
+          chmod +x scripts/deploy.sh
+          bash scripts/deploy.sh
+
+      - name: Extract addresses
+        id: extract-addresses
+        run: |
+          MARKETPLACE=$(jq -r '.contracts.marketplace.address' deployed_addresses.json)
+          MICROPAYMENTS=$(jq -r '.contracts.micropayments.address' deployed_addresses.json)
+          AGENT_REGISTRY=$(jq -r '.contracts.agent_registry.address' deployed_addresses.json)
+          echo "marketplace=${MARKETPLACE}" >> $GITHUB_OUTPUT
+          echo "micropayments=${MICROPAYMENTS}" >> $GITHUB_OUTPUT
+          echo "agent_registry=${AGENT_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "### Deployed Contract Addresses" >> $GITHUB_STEP_SUMMARY
+          echo "| Contract | Address |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Marketplace | \`${MARKETPLACE}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Micropayments | \`${MICROPAYMENTS}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Agent Registry | \`${AGENT_REGISTRY}\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload deployed_addresses.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-addresses-${{ github.sha }}
+          path: contract/deployed_addresses.json
+          retention-days: 30
+
+  # ── 3. Initialise ─────────────────────────────────────────────────────────────
+  initialise:
+    name: Initialise Contracts
+    runs-on: ubuntu-latest
+    needs: deploy
+    environment: testnet
+    defaults:
+      run:
+        working-directory: contract
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Download deployed addresses
+        uses: actions/download-artifact@v4
+        with:
+          name: deployed-addresses-${{ github.sha }}
+          path: contract
+
+      - name: Run initialisation
+        env:
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_DEPLOYER_SECRET_KEY }}
+        run: |
+          chmod +x scripts/init.sh
+          bash scripts/init.sh
+
+  # ── 4. Verify ─────────────────────────────────────────────────────────────────
+  verify:
+    name: Verify On-Chain State
+    runs-on: ubuntu-latest
+    needs: initialise
+    environment: testnet
+    defaults:
+      run:
+        working-directory: contract
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Download deployed addresses
+        uses: actions/download-artifact@v4
+        with:
+          name: deployed-addresses-${{ github.sha }}
+          path: contract
+
+      - name: Run verification
+        env:
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_DEPLOYER_SECRET_KEY }}
+        run: |
+          chmod +x scripts/verify.sh
+          bash scripts/verify.sh
+
+      - name: Upload verification results to step summary
+        if: always()
+        run: |
+          echo "### Verification Results" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          bash scripts/verify.sh 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY || true
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # ── 5. Post Contract Addresses as Commit Status ───────────────────────────────
+  post-commit-status:
+    name: Post Contract Addresses
+    runs-on: ubuntu-latest
+    needs: [deploy, verify]
+    if: always()
+
+    steps:
+      - name: Post commit status — Marketplace
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marketplace = "${{ needs.deploy.outputs.marketplace_address }}";
+            const micropayments = "${{ needs.deploy.outputs.micropayments_address }}";
+            const agentRegistry = "${{ needs.deploy.outputs.agent_registry_address }}";
+            const verifyResult = "${{ needs.verify.result }}";
+
+            const state = verifyResult === "success" ? "success" : "failure";
+            const description = verifyResult === "success"
+              ? `✓ All contracts live | Marketplace: ${marketplace.slice(0,8)}...`
+              : "Contract verification failed";
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state,
+              target_url: `https://stellar.expert/explorer/testnet/contract/${marketplace}`,
+              description,
+              context: "Cortex Protocol / Contract Deploy"
+            });
+
+      - name: Comment contract addresses on commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marketplace = "${{ needs.deploy.outputs.marketplace_address }}";
+            const micropayments = "${{ needs.deploy.outputs.micropayments_address }}";
+            const agentRegistry = "${{ needs.deploy.outputs.agent_registry_address }}";
+            const sha = context.sha;
+            const shortSha = sha.slice(0, 7);
+            const verifyResult = "${{ needs.verify.result }}";
+
+            const statusIcon = verifyResult === "success" ? "✅" : "❌";
+
+            const body = [
+              `## ${statusIcon} Cortex Protocol — Contract Deployment`,
+              `**Commit:** \`${shortSha}\` | **Network:** \`testnet\` | **Verification:** \`${verifyResult}\``,
+              "",
+              "| Contract | Address | Explorer |",
+              "|----------|---------|---------|",
+              `| Marketplace | \`${marketplace}\` | [View](https://stellar.expert/explorer/testnet/contract/${marketplace}) |`,
+              `| Micropayments | \`${micropayments}\` | [View](https://stellar.expert/explorer/testnet/contract/${micropayments}) |`,
+              `| Agent Registry | \`${agentRegistry}\` | [View](https://stellar.expert/explorer/testnet/contract/${agentRegistry}) |`,
+              "",
+              "```bash",
+              "# Use these addresses in your .env:",
+              `MARKETPLACE_CONTRACT_ID=${marketplace}`,
+              `MICROPAYMENTS_CONTRACT_ID=${micropayments}`,
+              `AGENT_REGISTRY_CONTRACT_ID=${agentRegistry}`,
+              "```",
+              "",
+              `> Deployed at ${new Date().toISOString()} by CI pipeline`,
+            ].join("\n");
+
+            // Find existing deployment comment on this commit's PRs
+            const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: sha,
+            });
+
+            for (const pr of pulls.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body,
+              });
+            }
+
+            core.notice(body);
