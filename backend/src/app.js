@@ -14,6 +14,7 @@ const internalRouter = require("./routes/internal");
 const healthRouter = require("./routes/health");
 const adminRouter = require("./routes/admin");
 const protocolRouter = require("./routes/protocol");
+const disputesRouter = require("./routes/disputes");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -65,6 +66,7 @@ app.use("/api/v1/stellar", stellarRouter);
 app.use("/api/v1/internal", internalRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/protocol", protocolRouter);
+app.use("/api/v1/disputes", disputesRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);
