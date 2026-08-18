@@ -1,0 +1,36 @@
+name: Contract CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'contract/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'contract/**'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contract
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Run cargo test
+        run: cargo test
+
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings

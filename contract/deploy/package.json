@@ -1,0 +1,38 @@
+{
+  "name": "@cortex-protocol/deploy",
+  "version": "1.0.0",
+  "description": "TypeScript deployment client for Cortex Protocol contracts on Stellar",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "node --loader ts-node/esm src/index.ts deploy",
+    "init": "node --loader ts-node/esm src/index.ts init",
+    "verify": "node --loader ts-node/esm src/index.ts verify",
+    "deploy:full": "node --loader ts-node/esm src/index.ts full",
+    "deploy:clean": "FORCE_REDEPLOY=true node --loader ts-node/esm src/index.ts full",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "stellar",
+    "soroban",
+    "smart-contracts",
+    "deployment",
+    "cortex-protocol"
+  ],
+  "license": "MIT"
+}

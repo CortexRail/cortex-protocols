@@ -1,5 +1,20 @@
 const request = require("supertest");
 const app = require("../app");
+const { seed } = require("../db/seed");
+const { truncateAll, closePool, OWNER_B } = require("./helpers/testDb");
+
+// Right length (56 chars), right "G" prefix, but an invalid checksum.
+const BAD_CHECKSUM_KEY =
+  "GA234567A234567A234567A234567A234567A234567A234567A23456";
+
+beforeAll(async () => {
+  await truncateAll();
+  await seed();
+});
+
+afterAll(async () => {
+  await closePool();
+});
 
 describe("GET /api/v1/agents", () => {
   it("returns a list of agents", async () => {
@@ -7,14 +22,25 @@ describe("GET /api/v1/agents", () => {
     expect(res.body).toHaveProperty("data");
     expect(res.body).toHaveProperty("meta");
     expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0);
   });
 
   it("filters by capability", async () => {
     const res = await request(app)
       .get("/api/v1/agents?capability=Reasoning")
       .expect(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
     res.body.data.forEach((a) => {
       expect(a.capabilities).toContain("Reasoning");
+    });
+  });
+
+  it("filters by minReputation", async () => {
+    const res = await request(app)
+      .get("/api/v1/agents?minReputation=9000")
+      .expect(200);
+    res.body.data.forEach((a) => {
+      expect(a.reputation).toBeGreaterThanOrEqual(9000);
     });
   });
 

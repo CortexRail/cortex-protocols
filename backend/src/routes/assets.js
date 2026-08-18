@@ -1,13 +1,19 @@
 const { Router } = require("express");
 const { body, query, param } = require("express-validator");
 const validate = require("../middleware/validate");
+const asyncHandler = require("../middleware/asyncHandler");
 const {
   listAssets,
   getAsset,
   indexAsset,
+  removeAsset,
   ASSET_TYPES,
   LICENSE_TYPES,
 } = require("../services/assetService");
+const assetRepository = require("../repositories/assetRepository");
+const { purchaseLicense } = require("../services/licenseService");
+const { fileReport, REPORT_REASONS } = require("../services/reportService");
+const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
 
@@ -20,6 +26,7 @@ router.get(
   [
     query("assetType").optional().isIn(ASSET_TYPES),
     query("licenseType").optional().isIn(LICENSE_TYPES),
+    query("owner").optional().isString().isLength({ min: 56, max: 56 }),
     query("minPrice").optional().isInt({ min: 0 }),
     query("maxPrice").optional().isInt({ min: 0 }),
     query("search").optional().isString().trim().isLength({ max: 100 }),
@@ -27,13 +34,22 @@ router.get(
     query("limit").optional().isInt({ min: 1, max: 100 }),
   ],
   validate,
-  (req, res) => {
-    const { assetType, licenseType, minPrice, maxPrice, search, page, limit } =
-      req.query;
-
-    const result = listAssets({
+  asyncHandler(async (req, res) => {
+    const {
       assetType,
       licenseType,
+      owner,
+      minPrice,
+      maxPrice,
+      search,
+      page,
+      limit,
+    } = req.query;
+
+    const result = await listAssets({
+      assetType,
+      licenseType,
+      owner,
       minPrice: minPrice !== undefined ? Number(minPrice) : undefined,
       maxPrice: maxPrice !== undefined ? Number(maxPrice) : undefined,
       search,
@@ -42,7 +58,58 @@ router.get(
     });
 
     res.json(result);
-  }
+  })
+);
+
+/**
+ * POST /api/v1/assets/:id/delist
+ * Soft-delete an asset owned by the caller.
+ */
+router.post(
+  "/:id/delist",
+  [
+    param("id").isInt({ min: 1 }),
+    body("owner").isString().isLength({ min: 56, max: 56 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const asset = await getAsset(req.params.id);
+    if (!asset) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+    if (asset.owner !== req.body.owner) {
+      return res.status(403).json({ error: "Not the asset owner" });
+    }
+    const deleted = await removeAsset(asset.id);
+    res.json({ success: deleted });
+  })
+);
+
+/**
+ * PATCH /api/v1/assets/:id/price
+ * Update the price of an asset owned by the caller.
+ */
+router.patch(
+  "/:id/price",
+  [
+    param("id").isInt({ min: 1 }),
+    body("owner").isString().isLength({ min: 56, max: 56 }),
+    body("price").isInt({ min: 0 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const asset = await getAsset(req.params.id);
+    if (!asset) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+    if (asset.owner !== req.body.owner) {
+      return res.status(403).json({ error: "Not the asset owner" });
+    }
+    const updated = await assetRepository.update(asset.id, {
+      price: req.body.price,
+    });
+    res.json(updated);
+  })
 );
 
 /**
@@ -53,13 +120,13 @@ router.get(
   "/:id",
   [param("id").isInt({ min: 1 })],
   validate,
-  (req, res) => {
-    const asset = getAsset(req.params.id);
+  asyncHandler(async (req, res) => {
+    const asset = await getAsset(req.params.id);
     if (!asset) {
       return res.status(404).json({ error: "Asset not found" });
     }
     res.json(asset);
-  }
+  })
 );
 
 /**
@@ -70,19 +137,86 @@ router.post(
   "/",
   [
     body("id").isInt({ min: 1 }),
-    body("owner").isString().isLength({ min: 56, max: 56 }),
+    body("owner")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
     body("name").isString().trim().isLength({ min: 1, max: 200 }),
     body("description").isString().trim().isLength({ min: 1, max: 2000 }),
     body("assetType").isIn(ASSET_TYPES),
     body("licenseType").isIn(LICENSE_TYPES),
     body("price").isInt({ min: 0 }),
+    body("version").optional().isInt({ min: 1 }),
     body("tags").optional().isArray(),
   ],
   validate,
-  (req, res) => {
-    const asset = indexAsset(req.body);
+  asyncHandler(async (req, res) => {
+    const asset = await indexAsset(req.body);
     res.status(201).json(asset);
-  }
+  })
+);
+
+/**
+ * POST /api/v1/assets/:id/purchase
+ * Purchase a license for an asset. Creates the license row and bumps the
+ * asset's usage counter in a single transaction.
+ */
+router.post(
+  "/:id/purchase",
+  [
+    param("id").isInt({ min: 1 }),
+    body("buyer")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    body("assetVersion")
+      .optional()
+      .custom(Number.isInteger)
+      .withMessage("must be an integer")
+      .bail()
+      .custom((value) => value >= 1)
+      .withMessage("must be greater than or equal to 1"),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await purchaseLicense({
+      assetId: Number(req.params.id),
+      buyer: req.body.buyer,
+      assetVersion: req.body.assetVersion,
+    });
+    res.status(201).json(result);
+  })
+);
+
+/**
+ * POST /api/v1/assets/:id/report
+ * File a moderation report against an asset. Auto-flags the asset once its
+ * report count crosses reportService.FLAG_THRESHOLD.
+ */
+router.post(
+  "/:id/report",
+  [
+    param("id").isInt({ min: 1 }),
+    body("reporter")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    body("reason").isIn(REPORT_REASONS),
+    body("details").optional().isString().trim().isLength({ max: 2000 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await fileReport({
+      assetId: Number(req.params.id),
+      reporter: req.body.reporter,
+      reason: req.body.reason,
+      details: req.body.details,
+    });
+    res.status(201).json(result);
+  })
 );
 
 /**
