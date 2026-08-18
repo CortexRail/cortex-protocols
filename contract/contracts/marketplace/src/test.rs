@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{
     symbol_short,
@@ -28,24 +26,14 @@ fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, token::StellarAs
 /// Build a `soroban_sdk::String` from a `&str` that is exactly `n` bytes long
 /// by repeating the character `'a'` (1 byte each in UTF-8).
 fn str_of_len(env: &Env, n: usize) -> String {
-    // Build the string in a std buffer (we are in test context so std is fine
-    // via the test harness).
-    let mut s = soroban_sdk::vec![env]; // not used — just for clarity
-    let _ = s; // suppress warning
-    // Use the bytes constructor via a fixed-length slice approach.
-    // The simplest portable way in soroban tests is to construct from a literal
-    // and then rely on the fact that the SDK accepts &str slices in test mode.
-    // We abuse `String::from_str` which is available in test builds.
-    let raw: soroban_sdk::bytes::Bytes = {
-        // Build a native Vec<u8> of `n` 'a' bytes then hand it to the SDK.
-        extern crate std;
-        let v: std::vec::Vec<u8> = std::vec![b'a'; n];
-        soroban_sdk::bytes::Bytes::from_slice(env, &v)
-    };
+    // The helper is only used from test code, so thread-local std allocations
+    // are fine here.
+    extern crate std;
+    let raw: std::vec::Vec<u8> = std::vec![b'a'; n];
     String::from_bytes(env, &raw)
 }
 
-// ── Existing happy-path tests (updated to unwrap Result) ──────────────────────
+// ── Existing happy-path tests ─────────────────────────────────────────────────
 
 #[test]
 fn test_initialize() {
@@ -61,18 +49,31 @@ fn test_list_and_get_asset() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "GPT-4 Chain-of-Thought Prompt"),
-            &String::from_str(&env, "Advanced reasoning prompt for complex analysis"),
-            &AssetType::Prompt,
-            &LicenseType::Perpetual,
-            &5_000_000i128, // 0.5 XLM
-        )
-        .unwrap();
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "GPT-4 Chain-of-Thought Prompt"),
+        &String::from_str(&env, "Advanced reasoning prompt for complex analysis"),
+        &AssetType::Prompt,
+        &LicenseType::Perpetual,
+        &5_000_000i128, // 0.5 XLM
+    );
 
     assert_eq!(asset_id, 1);
+
+    // Inspect the LISTED event before issuing any further contract call:
+    // invocation metering clears prior events at the start of the next one.
+    let events = env.events().all();
+    assert_eq!(events.len(), 1);
+    let (_, topics, data) = events.last().unwrap();
+    let expected_topics = vec![
+        &env,
+        symbol_short!("LISTED").into_val(&env),
+        admin.into_val(&env),
+    ];
+    let emitted = u64::from_val(&env, &data);
+    assert_eq!(topics, expected_topics);
+    assert_eq!(emitted, asset_id);
+
     assert_eq!(client.asset_count(), 1);
 
     let asset = client.get_asset(&1).unwrap();
@@ -234,16 +235,14 @@ fn test_multiple_assets() {
             String::from_str(&env, "Asset Five")
         };
 
-        client
-            .list_asset(
-                &admin,
-                &name,
-                &String::from_str(&env, "A test intelligence asset"),
-                &AssetType::Workflow,
-                &LicenseType::UsageBased,
-                &1_000_000i128,
-            )
-            .unwrap();
+        client.list_asset(
+            &admin,
+            &name,
+            &String::from_str(&env, "A test intelligence asset"),
+            &AssetType::Workflow,
+            &LicenseType::UsageBased,
+            &1_000_000i128,
+        );
     }
 
     assert_eq!(client.asset_count(), 5);
@@ -255,16 +254,14 @@ fn test_delist_asset() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Deprecated Evaluator"),
-            &String::from_str(&env, "Old evaluator being retired"),
-            &AssetType::Evaluator,
-            &LicenseType::Perpetual,
-            &2_000_000i128,
-        )
-        .unwrap();
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Deprecated Evaluator"),
+        &String::from_str(&env, "Old evaluator being retired"),
+        &AssetType::Evaluator,
+        &LicenseType::Perpetual,
+        &2_000_000i128,
+    );
 
     client.delist_asset(&admin, &asset_id);
 
@@ -278,16 +275,14 @@ fn test_update_price() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Memory System v1"),
-            &String::from_str(&env, "Persistent agent memory module"),
-            &AssetType::MemorySystem,
-            &LicenseType::Subscription,
-            &10_000_000i128,
-        )
-        .unwrap();
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Memory System v1"),
+        &String::from_str(&env, "Persistent agent memory module"),
+        &AssetType::MemorySystem,
+        &LicenseType::Subscription,
+        &10_000_000i128,
+    );
 
     client.update_price(&admin, &asset_id, &15_000_000i128);
 
@@ -305,16 +300,14 @@ fn test_purchase_license() {
     let (token_addr, token_sac) = create_token(&env, &buyer);
     token_sac.mint(&buyer, &50_000_000);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Reasoning Chain Alpha"),
-            &String::from_str(&env, "Multi-step reasoning for legal analysis"),
-            &AssetType::ReasoningChain,
-            &LicenseType::Perpetual,
-            &10_000_000i128,
-        )
-        .unwrap();
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Reasoning Chain Alpha"),
+        &String::from_str(&env, "Multi-step reasoning for legal analysis"),
+        &AssetType::ReasoningChain,
+        &LicenseType::Perpetual,
+        &10_000_000i128,
+    );
 
     assert!(!client.has_license(&buyer, &asset_id));
 
@@ -596,16 +589,14 @@ fn test_has_no_license_by_default() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Tool Pack"),
-            &String::from_str(&env, "Collection of agent tools"),
-            &AssetType::Tool,
-            &LicenseType::UsageBased,
-            &3_000_000i128,
-        )
-        .unwrap();
+    client.list_asset(
+        &admin,
+        &String::from_str(&env, "Tool Pack"),
+        &String::from_str(&env, "Collection of agent tools"),
+        &AssetType::Tool,
+        &LicenseType::UsageBased,
+        &3_000_000i128,
+    );
 
     assert!(!client.has_license(&stranger, &1));
 }
@@ -630,10 +621,7 @@ fn test_list_asset_rejects_zero_price() {
         &0i128,
     );
 
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        MarketplaceError::InvalidPrice
-    );
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::InvalidPrice);
 }
 
 #[test]
@@ -651,10 +639,7 @@ fn test_list_asset_rejects_negative_price() {
         &-1i128,
     );
 
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        MarketplaceError::InvalidPrice
-    );
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::InvalidPrice);
 }
 
 #[test]
@@ -788,6 +773,34 @@ fn test_list_asset_accepts_description_of_exactly_2000_bytes() {
 }
 
 // TODO: add negative test for purchasing own asset (should panic)
+
+// Guard 4 — listing limit (MAX_ASSETS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_list_asset_rejects_when_limit_reached() {
+    let (env, admin, contract_id) = setup();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&ASSET_COUNT, &MAX_ASSETS);
+    });
+
+    let result = client.try_list_asset(
+        &admin,
+        &String::from_str(&env, "Over Limit"),
+        &String::from_str(&env, "Should be rejected"),
+        &AssetType::Prompt,
+        &LicenseType::Perpetual,
+        &1i128,
+    );
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::AssetLimitReached
+    );
+}
 
 // ── Upgrade mechanism ────────────────────────────────────────────────────────
 

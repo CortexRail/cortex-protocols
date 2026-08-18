@@ -26,6 +26,13 @@ const ASSET_HISTORY: Symbol = symbol_short!("A_HIST");
 const OWNER: Symbol = symbol_short!("OWNER");
 const HISTORY_LIMIT: u32 = 5;
 
+/// Maximum number of listings the marketplace will ever accept.
+const MAX_ASSETS: u64 = 10_000;
+/// Maximum byte length of an asset name.
+const MAX_NAME_LEN: u32 = 200;
+/// Maximum byte length of an asset description.
+const MAX_DESC_LEN: u32 = 2_000;
+
 // ── Data Types ───────────────────────────────────────────────────────────────
 
 /// Categories of intelligence assets that can be traded
@@ -300,7 +307,20 @@ impl MarketplaceContract {
     ) -> Result<u64, MarketplaceError> {
         owner.require_auth();
 
+        if price <= 0 {
+            return Err(MarketplaceError::InvalidPrice);
+        }
+        if name.is_empty() || name.len() > MAX_NAME_LEN {
+            return Err(MarketplaceError::InvalidMetadata);
+        }
+        if description.is_empty() || description.len() > MAX_DESC_LEN {
+            return Err(MarketplaceError::InvalidMetadata);
+        }
+
         let count: u64 = env.storage().instance().get(&ASSET_COUNT).unwrap_or(0u64);
+        if count >= MAX_ASSETS {
+            return Err(MarketplaceError::AssetLimitReached);
+        }
         let asset_id = count + 1;
 
         let asset = IntelligenceAsset {

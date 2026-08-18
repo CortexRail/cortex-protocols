@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
@@ -252,4 +250,3 @@ fn test_batch_settle_and_claimable_batch() {
     assert_eq!(stream1.withdrawn, 100_000);
     assert_eq!(stream1.last_settled, 100);
 }
-
