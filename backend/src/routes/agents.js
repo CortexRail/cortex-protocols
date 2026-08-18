@@ -71,32 +71,6 @@ router.get(
 );
 
 /**
- * GET /api/v1/agents/capabilities/list
- */
-router.get("/capabilities/list", (_req, res) => {
-  res.json({ capabilities: CAPABILITIES });
-});
-
-/**
- * GET /api/v1/agents/leaderboard
- * Get top agents by reputation, activity, or earnings.
- */
-router.get(
-  "/leaderboard",
-  [query("sortBy").optional().isIn(["reputation", "activity", "earnings"]), query("limit").optional().isInt({ min: 1, max: 100 })],
-  validate,
-  (req, res) => {
-    const sortBy = req.query.sortBy || "reputation";
-    const limit = req.query.limit ? Number(req.query.limit) : 20;
-    const leaderboard = getLeaderboard(sortBy, limit);
-    res.json({
-      data: leaderboard,
-      meta: { sortBy, limit, count: leaderboard.length },
-    });
-  }
-);
-
-/**
  * GET /api/v1/agents/:id
  */
 router.get(
@@ -135,28 +109,6 @@ router.post(
     const agent = await registerAgent(req.body);
     res.status(201).json(agent);
   })
-);
-
-/**
- * GET /api/v1/agents/:id/reputation-history
- * Get time-series reputation votes for an agent.
- */
-router.get(
-  "/:id/reputation-history",
-  [param("id").isInt({ min: 1 }), query("limit").optional().isInt({ min: 1, max: 100 })],
-  validate,
-  (req, res) => {
-    const agent = getAgent(req.params.id);
-    if (!agent) {
-      return res.status(404).json({ error: "Agent not found" });
-    }
-    const limit = req.query.limit ? Number(req.query.limit) : 30;
-    const history = getReputationHistory(req.params.id, limit);
-    res.json({
-      data: history,
-      meta: { agentId: req.params.id, count: history.length },
-    });
-  }
 );
 
 /**

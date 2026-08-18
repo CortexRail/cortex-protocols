@@ -1,21 +1,5 @@
 // Asset API integration with type safety
-
-export interface Asset {
-  id: string;
-  name: string;
-  description: string;
-  type: AssetType;
-  licenseType: LicenseType;
-  priceInStroops: number;
-  owner: {
-    id: string;
-    name: string;
-    reputation: number;
-  };
-  usageCount: number;
-  tags: string[];
-  createdAt: number;
-}
+import type { Asset, AssetListResponse } from "@/types/marketplace";
 
 export type AssetType =
   | "prompt"
@@ -31,7 +15,7 @@ export type LicenseType = "CC0" | "MIT" | "Apache2" | "Custom";
 
 export interface AssetFilters {
   search?: string;
-  type?: AssetType | "all";
+  assetType?: AssetType | "all";
   licenseType?: LicenseType | "all";
   minPrice?: number;
   maxPrice?: number;
@@ -41,15 +25,7 @@ export interface AssetFilters {
   limit?: number;
 }
 
-export interface AssetListResponse {
-  data: Asset[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    pages: number;
-  };
-}
+export type { Asset, AssetListResponse };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
 
@@ -59,7 +35,7 @@ export async function fetchAssets(
   const params = new URLSearchParams();
 
   if (filters.search) params.append("search", filters.search);
-  if (filters.type && filters.type !== "all") params.append("type", filters.type);
+  if (filters.assetType && filters.assetType !== "all") params.append("assetType", filters.assetType);
   if (filters.licenseType && filters.licenseType !== "all")
     params.append("license", filters.licenseType);
   if (filters.minPrice) params.append("minPrice", String(filters.minPrice));
@@ -74,7 +50,7 @@ export async function fetchAssets(
   return res.json();
 }
 
-export async function fetchAsset(id: string): Promise<Asset> {
+export async function fetchAsset(id: number): Promise<Asset> {
   const res = await fetch(`${API_BASE}/assets/${id}`);
   if (!res.ok) throw new Error(`Failed to fetch asset: ${res.statusText}`);
   return res.json();
@@ -84,6 +60,6 @@ export async function fetchAssetsByCategory(
   type: AssetType,
   limit: number = 12
 ): Promise<Asset[]> {
-  const res = await fetchAssets({ type, limit });
+  const res = await fetchAssets({ assetType: type, limit });
   return res.data;
 }

@@ -35,7 +35,7 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
     load();
   }, [
     filters.search,
-    filters.type,
+    filters.assetType,
     filters.licenseType,
     filters.minPrice,
     filters.maxPrice,
