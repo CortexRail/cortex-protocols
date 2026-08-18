@@ -223,6 +223,7 @@ impl AuditAnchorContract {
 
 #[cfg(test)]
 mod test {
+    extern crate std;
     use super::*;
     use soroban_sdk::{testutils::Address as _, Bytes, BytesN, Env};
 

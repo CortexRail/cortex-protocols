@@ -1,18 +1,11 @@
 /**
- * Dispute service — orchestrates the dispute lifecycle across the index.
- *
- * Evidence itself stays off-chain: a filing uploads the bundle here, this
- * module hashes it, and only the digest is what the contract commits to. The
- * hash a caller submits on-chain must therefore be the one returned by
- * `hashEvidence`, or `verifyEvidence` will report the mismatch.
- *
- * Agents affected by a filing or a verdict are notified over the existing SSE
- * channel (see protocol/StreamMonitor.js).
+ * Dispute service — orchestrates the dispute lifecycle across the index for both
+ * agent registry reputation disputes and marketplace purchase disputes.
  */
 
-const { createHash } = require("crypto");
-
+const crypto = require("crypto");
 const disputeRepository = require("../repositories/disputeRepository");
+const escrowRepository = require("../repositories/escrowRepository");
 const agentStakeRepository = require("../repositories/agentStakeRepository");
 const agentRepository = require("../repositories/agentRepository");
 const reputationEngine = require("./reputationEngine");
@@ -25,18 +18,27 @@ const OUTCOMES = Object.freeze({
   QuorumFailed: "quorum_failed",
 });
 
-function badRequest(message) {
+function httpError(status, message) {
   const err = new Error(message);
-  err.status = 400;
+  err.status = status;
   return err;
 }
 
+function badRequest(message) {
+  return httpError(400, message);
+}
+
+// ── Agent Registry Reputation Disputes ───────────────────────────────────
+
 /**
- * SHA-256 of the canonical JSON encoding of an evidence bundle.
+ * SHA-256 of the canonical JSON encoding of an evidence bundle (or string).
  * Object keys are sorted so the same bundle always hashes the same way.
  */
 function hashEvidence(evidence) {
-  return createHash("sha256").update(canonicalize(evidence)).digest("hex");
+  if (typeof evidence === "string") {
+    return crypto.createHash("sha256").update(evidence).digest("hex");
+  }
+  return crypto.createHash("sha256").update(canonicalize(evidence)).digest("hex");
 }
 
 function canonicalize(value) {
@@ -175,9 +177,6 @@ async function resolveDispute({
   return resolved;
 }
 
-/**
- * Mirror a stake change and keep the denormalized columns on `agents` in step.
- */
 async function recordStake({ agentAddress, token, amount, slashed, stakedAt }) {
   const stake = await agentStakeRepository.upsert({
     agentAddress,
@@ -190,7 +189,6 @@ async function recordStake({ agentAddress, token, amount, slashed, stakedAt }) {
   return stake;
 }
 
-/** Apply a slash to the stake mirror (used by the STAKE_SLASHED handler). */
 async function recordSlash(agentAddress, amount) {
   const stake = await agentStakeRepository.applySlash(agentAddress, amount);
   await syncStakeColumns(agentAddress, stake);
@@ -231,10 +229,6 @@ function normalizeOutcome(outcome) {
   return Object.values(OUTCOMES).includes(value) ? value : null;
 }
 
-/**
- * Push an event to subscribed agents. Notification is best-effort: a dead SSE
- * client must never fail the write that triggered it.
- */
 function notify(event, payload) {
   try {
     StreamMonitor.broadcast(event, payload);
@@ -243,6 +237,143 @@ function notify(event, payload) {
       console.warn(`[disputeService] notification failed: ${err.message}`);
     }
   }
+}
+
+// ── Marketplace Purchase Disputes ───────────────────────────────────────────
+
+/**
+ * File a purchase dispute (buyer-facing).
+ * Computes SHA-256 evidence hash and persists local dispute state.
+ */
+async function filePurchaseDispute({ disputeId, licenseId, buyer, evidenceText }) {
+  if (!licenseId || !buyer || !evidenceText) {
+    throw httpError(400, "licenseId, buyer, and evidenceText are required");
+  }
+
+  const escrow = await escrowRepository.findByLicenseId(licenseId);
+  if (!escrow) {
+    throw httpError(404, `Escrow hold for license ${licenseId} not found`);
+  }
+
+  if (escrow.buyer !== buyer) {
+    throw httpError(403, "Only the license buyer can raise a dispute");
+  }
+
+  if (escrow.status === "Released") {
+    throw httpError(400, "Cannot dispute an escrow that has already been released");
+  }
+
+  const evidenceHash = hashEvidence(evidenceText);
+
+  // Freeze escrow status locally
+  await escrowRepository.updateStatus(licenseId, "Disputed");
+
+  const effectiveDisputeId = disputeId || Date.now();
+
+  const dispute = await disputeRepository.createDispute({
+    disputeId: effectiveDisputeId,
+    licenseId,
+    buyer,
+    evidenceHash,
+    evidenceText,
+    status: "Open",
+  });
+
+  return {
+    dispute,
+    evidenceHash,
+  };
+}
+
+/**
+ * Get queue of open purchase disputes for arbitrator review.
+ */
+async function getArbitratorQueue() {
+  const disputes = await disputeRepository.findOpenDisputes();
+  const queue = await Promise.all(
+    disputes.map(async (d) => {
+      const escrow = await escrowRepository.findByLicenseId(d.licenseId);
+      const votes = await disputeRepository.findVotesByDisputeId(d.disputeId);
+      return {
+        ...d,
+        escrow,
+        votes,
+      };
+    })
+  );
+  return queue;
+}
+
+/**
+ * Cast an arbitrator vote for a dispute.
+ */
+async function castArbitratorVote({ disputeId, arbitrator, vote, bps = null }) {
+  if (!disputeId || !arbitrator || !vote) {
+    throw httpError(400, "disputeId, arbitrator, and vote decision are required");
+  }
+
+  const validVotes = ["FullRefund", "PartialRefund", "ReleaseToSeller"];
+  if (!validVotes.includes(vote)) {
+    throw httpError(400, `Invalid vote option. Must be one of: ${validVotes.join(", ")}`);
+  }
+
+  if (vote === "PartialRefund") {
+    if (bps == null || Number.isNaN(Number(bps)) || Number(bps) < 0 || Number(bps) > 10000) {
+      throw httpError(400, "PartialRefund requires bps between 0 and 10000");
+    }
+  }
+
+  const dispute = await disputeRepository.findByDisputeId(disputeId);
+  if (!dispute) {
+    throw httpError(404, `Dispute ${disputeId} not found`);
+  }
+
+  if (dispute.status !== "Open") {
+    throw httpError(400, `Dispute ${disputeId} is already resolved`);
+  }
+
+  const recordedVote = await disputeRepository.recordArbitratorVote({
+    disputeId,
+    arbitrator,
+    vote,
+    bps: vote === "PartialRefund" ? Number(bps) : null,
+  });
+
+  const votes = await disputeRepository.findVotesByDisputeId(disputeId);
+
+  return {
+    recordedVote,
+    totalVotes: votes.length,
+    votes,
+  };
+}
+
+/**
+ * Retrieve dispute details by dispute ID.
+ */
+async function getDisputeDetails(disputeId) {
+  const dispute = await disputeRepository.findByDisputeId(disputeId);
+  if (!dispute) {
+    throw httpError(404, `Dispute ${disputeId} not found`);
+  }
+  const escrow = await escrowRepository.findByLicenseId(dispute.licenseId);
+  const votes = await disputeRepository.findVotesByDisputeId(disputeId);
+  return {
+    ...dispute,
+    escrow,
+    votes,
+  };
+}
+
+/**
+ * Resolve dispute state (e.g. from contract event handlers).
+ */
+async function syncDisputeResolution(disputeId, decision) {
+  const dispute = await disputeRepository.updateDisputeStatus(disputeId, "Resolved", decision);
+  if (dispute && dispute.licenseId) {
+    await escrowRepository.updateStatus(dispute.licenseId, "Resolved");
+  }
+  return dispute;
 }
 
 module.exports = {
@@ -258,4 +389,11 @@ module.exports = {
   getActiveDisputes,
   getDispute,
   getDisputesForAgent,
+
+  // Marketplace Purchase Disputes
+  filePurchaseDispute,
+  getArbitratorQueue,
+  castArbitratorVote,
+  getDisputeDetails,
+  syncDisputeResolution,
 };

@@ -1,12 +1,98 @@
+/**
+ * Dispute & Arbitration REST API routes for both Agent Registry disputes
+ * and Marketplace Purchase disputes.
+ */
+
 const { Router } = require("express");
 const { body, param, query } = require("express-validator");
-
 const validate = require("../middleware/validate");
 const asyncHandler = require("../middleware/asyncHandler");
 const { isValidStellarAddress } = require("../utils/stellar");
 const disputeService = require("../services/disputeService");
 
 const router = Router();
+
+// ── Marketplace Purchase Disputes ───────────────────────────────────────────
+
+/**
+ * POST /api/v1/disputes/purchase
+ * File a marketplace purchase dispute with evidence upload/text.
+ */
+router.post(
+  "/purchase",
+  [
+    body("licenseId").isInt({ min: 1 }),
+    body("buyer").isString().isLength({ min: 56, max: 56 }),
+    body("evidenceText").isString().isLength({ min: 5, max: 10000 }),
+    body("disputeId").optional().isInt({ min: 1 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const { disputeId, licenseId, buyer, evidenceText } = req.body;
+    const result = await disputeService.filePurchaseDispute({
+      disputeId: disputeId ? Number(disputeId) : undefined,
+      licenseId: Number(licenseId),
+      buyer,
+      evidenceText,
+    });
+    res.status(201).json(result);
+  })
+);
+
+/**
+ * GET /api/v1/disputes/queue
+ * GET /api/v1/disputes/purchase/queue
+ * Retrieve arbitrator purchase dispute review queue.
+ */
+const getQueueHandler = asyncHandler(async (_req, res) => {
+  const queue = await disputeService.getArbitratorQueue();
+  res.json({ queue });
+});
+router.get("/queue", getQueueHandler);
+router.get("/purchase/queue", getQueueHandler);
+
+/**
+ * GET /api/v1/disputes/purchase/:disputeId
+ * Retrieve purchase dispute details by ID.
+ */
+router.get(
+  "/purchase/:disputeId",
+  [param("disputeId").isInt({ min: 1 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const { disputeId } = req.params;
+    const dispute = await disputeService.getDisputeDetails(Number(disputeId));
+    res.json(dispute);
+  })
+);
+
+/**
+ * POST /api/v1/disputes/purchase/:disputeId/vote
+ * Cast arbitrator vote for a purchase dispute.
+ */
+router.post(
+  "/purchase/:disputeId/vote",
+  [
+    param("disputeId").isInt({ min: 1 }),
+    body("arbitrator").isString().isLength({ min: 56, max: 56 }),
+    body("vote").isIn(["FullRefund", "PartialRefund", "ReleaseToSeller"]),
+    body("bps").optional().isInt({ min: 0, max: 10000 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const { disputeId } = req.params;
+    const { arbitrator, vote, bps } = req.body;
+    const result = await disputeService.castArbitratorVote({
+      disputeId: Number(disputeId),
+      arbitrator,
+      vote,
+      bps: bps != null ? Number(bps) : null,
+    });
+    res.json(result);
+  })
+);
+
+// ── Agent Registry Reputation Disputes ───────────────────────────────────
 
 /**
  * GET /api/v1/disputes

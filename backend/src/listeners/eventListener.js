@@ -113,8 +113,52 @@ async function processEvent(event) {
       );
       break;
     }
+const { setEscrowStatus } = require("../services/escrowService");
+const { syncDisputeResolution } = require("../services/disputeService");
+
     case "REGISTERED": {
       console.info(`[eventListener] agent registered: id=${event.value}`);
+      break;
+    }
+    case "ESCROW_RELEASED": {
+      const decoded = decodeEventValue(event.value);
+      const licenseId = safeNumber(Array.isArray(decoded) ? decoded[0] : decoded?.licenseId || decoded);
+      if (licenseId) {
+        await setEscrowStatus(licenseId, "Released");
+        console.info(`[eventListener] escrow released: licenseId=${licenseId}`);
+      }
+      break;
+    }
+    case "PURCHASE_DISPUTE_RAISED": {
+      const decoded = decodeEventValue(event.value);
+      let disputeId, licenseId;
+      if (Array.isArray(decoded)) {
+        [disputeId, licenseId] = decoded;
+      } else if (decoded && typeof decoded === "object") {
+        disputeId = decoded.disputeId;
+        licenseId = decoded.licenseId;
+      }
+      disputeId = safeNumber(disputeId);
+      licenseId = safeNumber(licenseId);
+      if (licenseId) {
+        await setEscrowStatus(licenseId, "Disputed");
+        console.info(`[eventListener] purchase dispute raised: disputeId=${disputeId}, licenseId=${licenseId}`);
+      }
+      break;
+    }
+    case "PURCHASE_DISPUTE_RESOLVED": {
+      const decoded = decodeEventValue(event.value);
+      let disputeId;
+      if (Array.isArray(decoded)) {
+        [disputeId] = decoded;
+      } else if (decoded && typeof decoded === "object") {
+        disputeId = decoded.disputeId;
+      }
+      disputeId = safeNumber(disputeId);
+      if (disputeId) {
+        await syncDisputeResolution(disputeId, "Resolved");
+        console.info(`[eventListener] purchase dispute resolved: disputeId=${disputeId}`);
+      }
       break;
     }
     default:

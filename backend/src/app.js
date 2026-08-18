@@ -15,11 +15,11 @@ const healthRouter = require("./routes/health");
 const adminRouter = require("./routes/admin");
 const complianceRouter = require("./routes/compliance");
 const protocolRouter = require("./routes/protocol");
+const escrowRouter = require("./routes/escrow");
 const disputesRouter = require("./routes/disputes");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
-
 
 // ── Security & logging ────────────────────────────────────────────────────────
 app.use(helmet());
@@ -68,6 +68,7 @@ app.use("/api/v1/internal", internalRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/admin", complianceRouter);
 app.use("/api/v1/protocol", protocolRouter);
+app.use("/api/v1/escrow", escrowRouter);
 app.use("/api/v1/disputes", disputesRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
