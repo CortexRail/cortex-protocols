@@ -31,6 +31,10 @@ async function start() {
   const { startPipeline, stopPipeline } = require("./pipeline/EventPipeline");
   await startPipeline({ intervalMs: 5_000 });
 
+  // Start periodic Merkle anchoring of the audit log.
+  const { MerkleAnchor } = require("./audit/MerkleAnchor");
+  MerkleAnchor.getInstance().start();
+
   // ── Graceful shutdown ──────────────────────────────────────────────────────
   // Stop accepting connections, let in-flight requests finish, then drain
   // the pg pool so no query is killed mid-transaction.
@@ -43,6 +47,7 @@ async function start() {
     server.close(async () => {
       try {
         await stopPipeline();
+        MerkleAnchor.getInstance().stop();
         await closePool();
         console.log("[cortex-protocol] database pool closed, bye");
         process.exit(0);

@@ -13,6 +13,7 @@ const stellarRouter = require("./routes/stellar");
 const internalRouter = require("./routes/internal");
 const healthRouter = require("./routes/health");
 const adminRouter = require("./routes/admin");
+const complianceRouter = require("./routes/compliance");
 const protocolRouter = require("./routes/protocol");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
@@ -64,6 +65,7 @@ app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/stellar", stellarRouter);
 app.use("/api/v1/internal", internalRouter);
 app.use("/api/v1/admin", adminRouter);
+app.use("/api/v1/admin", complianceRouter);
 app.use("/api/v1/protocol", protocolRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
