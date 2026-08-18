@@ -10,6 +10,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, E
 
 const STREAMS: Symbol = symbol_short!("STREAMS");
 const STREAM_CNT: Symbol = symbol_short!("S_CNT");
+const NONCE_REGISTRY: Symbol = symbol_short!("NONCE_REG");
 
 /// State of a payment stream
 #[contracttype]
@@ -19,6 +20,22 @@ pub enum StreamStatus {
     Paused,
     Completed,
     Cancelled,
+}
+
+/// Settlement status for a stream
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementStatus {
+    pub last_settled_amount: i128,
+    pub ledger_sequence: u64,
+}
+
+/// Settlement errors
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SettlementError {
+    StaleNonce,
+    PartialBatchFailure,
 }
 
 /// A payment stream from a sender to a recipient
@@ -264,8 +281,23 @@ impl MicropaymentsContract {
     }
 
     /// Settle multiple streams for a recipient in a single transaction.
-    pub fn batch_settle(env: Env, recipient: Address, stream_ids: Vec<u64>) -> Map<u64, i128> {
+    /// Includes idempotency guard via batch_nonce to prevent double-payment.
+    pub fn batch_settle(env: Env, recipient: Address, stream_ids: Vec<u64>, batch_nonce: u64) -> Map<u64, i128> {
         recipient.require_auth();
+
+        // Check if this nonce was already used
+        let mut nonce_registry: Map<Address, Map<u64, Map<u64, i128>>> = env
+            .storage()
+            .persistent()
+            .get(&NONCE_REGISTRY)
+            .unwrap_or(Map::new(&env));
+
+        if let Some(recipient_nonces) = nonce_registry.get(recipient.clone()) {
+            if let Some(cached_result) = recipient_nonces.get(batch_nonce) {
+                // Nonce already used - return cached result (idempotent replay)
+                return cached_result;
+            }
+        }
 
         let mut streams: Map<u64, PaymentStream> = env
             .storage()
@@ -275,6 +307,7 @@ impl MicropaymentsContract {
 
         let mut settled_amounts: Map<u64, i128> = Map::new(&env);
         let now = env.ledger().timestamp();
+        let ledger_seq = env.ledger().sequence();
 
         for id in stream_ids.iter() {
             if let Some(mut stream) = streams.get(id) {
@@ -306,6 +339,13 @@ impl MicropaymentsContract {
         }
 
         env.storage().persistent().set(&STREAMS, &streams);
+
+        // Cache the result for this nonce
+        let mut recipient_nonces = nonce_registry.get(recipient.clone()).unwrap_or(Map::new(&env));
+        recipient_nonces.set(batch_nonce, settled_amounts.clone());
+        nonce_registry.set(recipient, recipient_nonces);
+        env.storage().persistent().set(&NONCE_REGISTRY, &nonce_registry);
+
         settled_amounts
     }
 
@@ -327,6 +367,40 @@ impl MicropaymentsContract {
                 }
                 None => {
                     result.set(id, 0);
+                }
+            }
+        }
+        result
+    }
+
+    /// Get settlement status for multiple streams.
+    /// Returns per-stream last-settled-amount and ledger sequence for reconciliation.
+    pub fn get_settlement_status(env: Env, stream_ids: Vec<u64>) -> Map<u64, SettlementStatus> {
+        let streams: Map<u64, PaymentStream> = env
+            .storage()
+            .persistent()
+            .get(&STREAMS)
+            .unwrap_or(Map::new(&env));
+
+        let mut result: Map<u64, SettlementStatus> = Map::new(&env);
+        let ledger_seq = env.ledger().sequence();
+
+        for id in stream_ids.iter() {
+            match streams.get(id) {
+                Some(s) => {
+                    let status = SettlementStatus {
+                        last_settled_amount: s.withdrawn,
+                        ledger_sequence: ledger_seq,
+                    };
+                    result.set(id, status);
+                }
+                None => {
+                    // Return zero status for non-existent streams
+                    let status = SettlementStatus {
+                        last_settled_amount: 0,
+                        ledger_sequence: ledger_seq,
+                    };
+                    result.set(id, status);
                 }
             }
         }
