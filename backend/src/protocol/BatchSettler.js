@@ -3,8 +3,11 @@ const { invokeContract } = require("../services/stellarService");
 const { CONTRACT_IDS } = require("../config/stellar");
 const streamRepository = require("../repositories/streamRepository");
 const { withTransaction } = require("../db/connection");
+const SettlementLedger = require("./SettlementLedger");
+const SettlementReconciler = require("./SettlementReconciler");
 
 let intervalId = null;
+let isRecovering = false;
 
 /**
  * Get the server's Keypair for signing transactions.
@@ -23,9 +26,15 @@ function getServerKeypair() {
 }
 
 /**
- * Run the batch settlement check and execution.
+ * Run the batch settlement check and execution with two-phase commit.
  */
 async function runSettlement() {
+  // Skip if we're in crash recovery mode
+  if (isRecovering) {
+    console.info("[BatchSettler] Skipping normal settlement - crash recovery in progress");
+    return;
+  }
+
   try {
     const keypair = getServerKeypair();
     if (!keypair) {
@@ -60,24 +69,64 @@ async function runSettlement() {
     console.info(`[BatchSettler] Settling ${streamsToSettle.length} streams on-chain...`);
 
     const streamIds = streamsToSettle.map((s) => BigInt(s.id));
+    const recipient = recipientAddr;
 
-    // 2. Trigger on-chain batch_settle
+    // 2. Begin two-phase commit - create PENDING record
+    const expectedAmounts = streamsToSettle.map(s => {
+      const elapsed = Math.floor(Date.now() / 1000) - s.startTime;
+      const claimable = Math.min(s.deposit - s.withdrawn, elapsed * s.ratePerSecond);
+      return claimable > 0 ? claimable : 0;
+    });
+
+    const settlement = await SettlementLedger.beginSettlement({
+      recipient,
+      streamIds: streamsToSettle.map(s => s.id),
+      expectedAmounts,
+    });
+
+    // 3. Trigger on-chain batch_settle with nonce
     const contractId = CONTRACT_IDS.micropayments;
     if (!contractId) {
       console.warn("[BatchSettler] micropayments contract not configured; skipping on-chain call");
+      await SettlementLedger.failSettlement(settlement.id, new Error("Contract not configured"));
       return;
     }
 
-    const recipientSc = Address.fromString(recipientAddr).toScVal();
+    const recipientSc = Address.fromString(recipient).toScVal();
     const streamIdsSc = nativeToScVal(streamIds);
+    const nonceSc = nativeToScVal(BigInt(settlement.batchNonce));
 
-    const result = await invokeContract(
-      contractId,
-      "batch_settle",
-      [recipientSc, streamIdsSc],
-      keypair
-    );
-    console.info("[BatchSettler] On-chain batch_settle succeeded:", result);
+    try {
+      const result = await invokeContract(
+        contractId,
+        "batch_settle",
+        [recipientSc, streamIdsSc, nonceSc],
+        keypair
+      );
+
+      // 4. Mark as CONFIRMED on success
+      await SettlementLedger.confirmSettlement(settlement.id, {
+        ledgerSequence: result.ledger_sequence || Date.now(),
+      });
+
+      console.info("[BatchSettler] On-chain batch_settle succeeded:", result);
+
+      // Update off-chain withdrawn amounts to match on-chain
+      await withTransaction(async (client) => {
+        for (let i = 0; i < streamsToSettle.length; i++) {
+          const stream = streamsToSettle[i];
+          const amount = expectedAmounts[i];
+          if (amount > 0) {
+            await streamRepository.recordWithdrawal(stream.id, amount, client);
+          }
+        }
+      });
+    } catch (err) {
+      // 5. Mark as FAILED on error
+      await SettlementLedger.failSettlement(settlement.id, err);
+      console.error("[BatchSettler] On-chain batch_settle failed:", err.message);
+      throw err;
+    }
   } catch (err) {
     console.error("[BatchSettler] error during settlement:", err.message);
   }
@@ -155,10 +204,92 @@ async function forceSettleStream(id) {
 }
 
 /**
+ * Recover PENDING settlements on startup (crash recovery).
+ * Replays any settlements that were left in PENDING state due to process crash.
+ */
+async function recoverPendingSettlements() {
+  isRecovering = true;
+  try {
+    console.info("[BatchSettler] Starting crash recovery - checking for PENDING settlements");
+    
+    const pending = await SettlementLedger.recoverPendingSettlements();
+    
+    if (pending.length === 0) {
+      console.info("[BatchSettler] No PENDING settlements to recover");
+      return;
+    }
+
+    const keypair = getServerKeypair();
+    if (!keypair) {
+      console.warn("[BatchSettler] No server keypair - cannot recover on-chain settlements");
+      return;
+    }
+
+    const contractId = CONTRACT_IDS.micropayments;
+    if (!contractId) {
+      console.warn("[BatchSettler] Contract not configured - cannot recover settlements");
+      return;
+    }
+
+    console.info(`[BatchSettler] Recovering ${pending.length} PENDING settlements`);
+
+    for (const settlement of pending) {
+      try {
+        console.info(`[BatchSettler] Recovering settlement ${settlement.id} with nonce ${settlement.batchNonce}`);
+
+        const recipientSc = Address.fromString(settlement.recipient).toScVal();
+        const streamIdsSc = nativeToScVal(settlement.streamIds.map(id => BigInt(id)));
+        const nonceSc = nativeToScVal(BigInt(settlement.batchNonce));
+
+        // Replay the settlement with the same nonce (idempotent)
+        const result = await invokeContract(
+          contractId,
+          "batch_settle",
+          [recipientSc, streamIdsSc, nonceSc],
+          keypair
+        );
+
+        // Mark as CONFIRMED
+        await SettlementLedger.confirmSettlement(settlement.id, {
+          ledgerSequence: result.ledger_sequence || Date.now(),
+        });
+
+        console.info(`[BatchSettler] Successfully recovered settlement ${settlement.id}`);
+
+        // Update off-chain withdrawn amounts
+        await withTransaction(async (client) => {
+          for (let i = 0; i < settlement.streamIds.length; i++) {
+            const streamId = settlement.streamIds[i];
+            const amount = settlement.expectedAmounts[i];
+            if (amount > 0) {
+              await streamRepository.recordWithdrawal(streamId, amount, client);
+            }
+          }
+        });
+      } catch (err) {
+        console.error(`[BatchSettler] Failed to recover settlement ${settlement.id}:`, err.message);
+        await SettlementLedger.failSettlement(settlement.id, err);
+      }
+    }
+
+    console.info("[BatchSettler] Crash recovery complete");
+  } finally {
+    isRecovering = false;
+  }
+}
+
+/**
  * Start the BatchSettler daemon.
  */
-function start(intervalMs = 60_000) {
+async function start(intervalMs = 60_000) {
   if (intervalId) return;
+  
+  // Run crash recovery before starting normal operation
+  await recoverPendingSettlements();
+  
+  // Start reconciliation daemon
+  SettlementReconciler.start();
+  
   console.info(`[BatchSettler] starting — running every ${intervalMs}ms`);
   intervalId = setInterval(runSettlement, intervalMs);
 }
@@ -172,6 +303,9 @@ function stop() {
     intervalId = null;
     console.info("[BatchSettler] stopped");
   }
+  
+  // Stop reconciliation daemon
+  SettlementReconciler.stop();
 }
 
 module.exports = {

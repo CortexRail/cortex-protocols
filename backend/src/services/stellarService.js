@@ -99,4 +99,4 @@ async function viewContract(contractId, method, args, callerPublicKey) {
   return returnVal ? scValToNative(returnVal) : null;
 }
 
-module.exports = { invokeContract, viewContract, loadAccount };
+module.exports = { invokeContract, viewContract, invokeContractView: viewContract, loadAccount };
