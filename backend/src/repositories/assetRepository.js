@@ -16,7 +16,7 @@ const { advancedSearch } = require("../utils/advancedSearch");
 const COLUMNS = `
   id, owner, name, description, asset_type, license_type, price,
   version, usage_count, is_active, tags, flagged, flagged_at, created_at,
-  indexed_at, updated_at, deleted_at
+  indexed_at, updated_at, deleted_at, capacity
 `;
 
 function availableVersions(version) {
@@ -43,6 +43,7 @@ function mapAsset(row) {
     usageCount: row.usage_count,
     isActive: row.is_active,
     tags: row.tags,
+    capacity: Number(row.capacity || 0),
     flagged: row.flagged,
     flaggedAt: toMs(row.flagged_at),
     createdAt: toMs(row.created_at),
@@ -70,16 +71,17 @@ async function create(asset, client) {
     usageCount = 0,
     isActive = true,
     tags = [],
+    capacity = 0,
     createdAt,
   } = asset;
 
   const { rows } = await run(
     `INSERT INTO assets
        (id, owner, name, description, asset_type, license_type, price, version,
-        usage_count, is_active, tags, created_at)
+        usage_count, is_active, tags, capacity, created_at)
      VALUES
-       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
-        COALESCE(to_timestamp($12::double precision / 1000.0), now()))
+       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12,
+        COALESCE(to_timestamp($13::double precision / 1000.0), now()))
      ON CONFLICT (id) DO UPDATE SET
        owner        = EXCLUDED.owner,
        name         = EXCLUDED.name,
@@ -87,10 +89,11 @@ async function create(asset, client) {
        asset_type   = EXCLUDED.asset_type,
        license_type = EXCLUDED.license_type,
        price        = EXCLUDED.price,
-       version      = CASE WHEN $13 THEN EXCLUDED.version ELSE assets.version END,
+       version      = CASE WHEN $14 THEN EXCLUDED.version ELSE assets.version END,
        usage_count  = EXCLUDED.usage_count,
        is_active    = EXCLUDED.is_active,
        tags         = EXCLUDED.tags,
+       capacity     = EXCLUDED.capacity,
        indexed_at   = now(),
        updated_at   = now()
      RETURNING ${COLUMNS}`,
@@ -106,6 +109,7 @@ async function create(asset, client) {
       usageCount,
       isActive,
       JSON.stringify(tags),
+      Number(capacity) || 0,
       msParam(createdAt),
       hasVersion,
     ],
@@ -313,6 +317,7 @@ async function update(id, patch, client) {
     usageCount: "usage_count",
     isActive: "is_active",
     tags: "tags",
+    capacity: "capacity",
   };
 
   const sets = [];

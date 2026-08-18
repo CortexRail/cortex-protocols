@@ -52,4 +52,28 @@ pub enum MarketplaceError {
 
     /// Arithmetic overflow or underflow occurred.
     ArithmeticError = 15,
+
+    /// Auction does not exist.
+    AuctionNotFound = 16,
+
+    /// Auction is not in the phase required by the operation.
+    AuctionPhaseError = 17,
+
+    /// Bidder has not committed a bid for this auction.
+    BidNotCommitted = 18,
+
+    /// Revealed bid does not match the committed bid hash.
+    CommitmentMismatch = 19,
+
+    /// Bid amount is invalid (below reserve or non-positive).
+    InvalidBidAmount = 20,
+
+    /// Auction parameters are invalid (e.g. zero capacity or duration).
+    InvalidAuctionParams = 21,
+
+    /// Bidder has already revealed a bid for this auction.
+    BidAlreadyRevealed = 22,
+
+    /// Reveal uses a different payment token than the auction escrow.
+    TokenMismatch = 23,
 }

@@ -3,8 +3,8 @@
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _, MockAuth, MockAuthInvoke},
-    token, vec, Address, BytesN, Env, FromVal, IntoVal, Map, String,
+    testutils::{Address as _, Events as _, Ledger, MockAuth, MockAuthInvoke},
+    token, vec, Address, Bytes, BytesN, Env, FromVal, IntoVal, Map, String,
 };
 
 fn setup() -> (Env, Address, Address) {
@@ -30,19 +30,9 @@ fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, token::StellarAs
 fn str_of_len(env: &Env, n: usize) -> String {
     // Build the string in a std buffer (we are in test context so std is fine
     // via the test harness).
-    let mut s = soroban_sdk::vec![env]; // not used — just for clarity
-    let _ = s; // suppress warning
-    // Use the bytes constructor via a fixed-length slice approach.
-    // The simplest portable way in soroban tests is to construct from a literal
-    // and then rely on the fact that the SDK accepts &str slices in test mode.
-    // We abuse `String::from_str` which is available in test builds.
-    let raw: soroban_sdk::bytes::Bytes = {
-        // Build a native Vec<u8> of `n` 'a' bytes then hand it to the SDK.
-        extern crate std;
-        let v: std::vec::Vec<u8> = std::vec![b'a'; n];
-        soroban_sdk::bytes::Bytes::from_slice(env, &v)
-    };
-    String::from_bytes(env, &raw)
+    extern crate std;
+    let v: std::vec::Vec<u8> = std::vec![b'a'; n];
+    String::from_bytes(env, &v)
 }
 
 // ── Existing happy-path tests (updated to unwrap Result) ──────────────────────
@@ -69,8 +59,7 @@ fn test_list_and_get_asset() {
             &AssetType::Prompt,
             &LicenseType::Perpetual,
             &5_000_000i128, // 0.5 XLM
-        )
-        .unwrap();
+        );
 
     assert_eq!(asset_id, 1);
     assert_eq!(client.asset_count(), 1);
@@ -242,8 +231,7 @@ fn test_multiple_assets() {
                 &AssetType::Workflow,
                 &LicenseType::UsageBased,
                 &1_000_000i128,
-            )
-            .unwrap();
+            );
     }
 
     assert_eq!(client.asset_count(), 5);
@@ -263,8 +251,7 @@ fn test_delist_asset() {
             &AssetType::Evaluator,
             &LicenseType::Perpetual,
             &2_000_000i128,
-        )
-        .unwrap();
+        );
 
     client.delist_asset(&admin, &asset_id);
 
@@ -286,8 +273,7 @@ fn test_update_price() {
             &AssetType::MemorySystem,
             &LicenseType::Subscription,
             &10_000_000i128,
-        )
-        .unwrap();
+        );
 
     client.update_price(&admin, &asset_id, &15_000_000i128);
 
@@ -313,8 +299,7 @@ fn test_purchase_license() {
             &AssetType::ReasoningChain,
             &LicenseType::Perpetual,
             &10_000_000i128,
-        )
-        .unwrap();
+        );
 
     assert!(!client.has_license(&buyer, &asset_id));
 
@@ -604,8 +589,7 @@ fn test_has_no_license_by_default() {
             &AssetType::Tool,
             &LicenseType::UsageBased,
             &3_000_000i128,
-        )
-        .unwrap();
+        );
 
     assert!(!client.has_license(&stranger, &1));
 }
@@ -796,7 +780,7 @@ fn test_version() {
     let (env, admin, contract_id) = setup();
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
-    assert_eq!(client.version(), 1);
+    assert_eq!(client.version(), 2);
 }
 
 #[test]
@@ -826,7 +810,7 @@ fn test_upgrade_with_unknown_wasm_fails() {
     // leaving the current code in place.
     let bogus = BytesN::from_array(&env, &[7u8; 32]);
     assert!(client.try_upgrade(&bogus).is_err());
-    assert_eq!(client.version(), 1);
+    assert_eq!(client.version(), 2);
 }
 
 #[test]
@@ -850,4 +834,821 @@ fn test_upgrade_requires_owner_auth() {
 
     let bogus = BytesN::from_array(&env, &[7u8; 32]);
     assert!(client.try_upgrade(&bogus).is_err());
+}
+// ── Sealed-Bid Auction tests ──────────────────────────────────────────────────
+
+fn set_ledger(env: &Env, seq: u32) {
+    env.ledger().with_mut(|l| l.sequence_number = seq);
+}
+
+/// Canonical bid commitment hash: sha256(amount_be_bytes || salt).
+fn bid_hash(env: &Env, amount: i128, salt: [u8; 32]) -> BytesN<32> {
+    let mut input = Bytes::new(env);
+    input.append(&Bytes::from_slice(env, &amount.to_be_bytes()));
+    input.append(&Bytes::from_slice(env, &salt));
+    env.crypto().sha256(&input).to_bytes()
+}
+
+fn salt_of(seed: u8) -> [u8; 32] {
+    [seed; 32]
+}
+
+/// Mint `amount` of the SAC at `token` to `to`.
+fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
+    token::StellarAssetClient::new(env, token).mint(to, &amount);
+}
+
+/// Read the balance of `who` on the SAC at `token`.
+fn balance(env: &Env, token: &Address, who: &Address) -> i128 {
+    token::Client::new(env, token).balance(who)
+}
+
+/// List an asset as `seller` and open an auction for it at the current ledger.
+fn open_auction_for(
+    env: &Env,
+    client: &MarketplaceContractClient,
+    seller: &Address,
+    capacity: u32,
+    min_bid: i128,
+    duration: u32,
+) -> u64 {
+    let asset_id = client.list_asset(
+        seller,
+        &String::from_str(env, "Auction Asset"),
+        &String::from_str(env, "Capacity-constrained intelligence asset"),
+        &AssetType::Tool,
+        &LicenseType::Perpetual,
+        &min_bid,
+    );
+    client.open_auction(seller, &asset_id, &capacity, &min_bid, &duration)
+}
+
+/// Setup: env at ledger 100, seller, token, listed asset, open auction.
+/// Returns (env, seller, token, auction_id, contract_id).
+fn auction_fixture(
+    capacity: u32,
+    min_bid: i128,
+    duration: u32,
+) -> (Env, Address, Address, u64, Address) {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let (token, _) = create_token(&env, &admin);
+    let auction_id = open_auction_for(&env, &client, &admin, capacity, min_bid, duration);
+    (env, admin, token, auction_id, contract_id)
+}
+
+#[test]
+fn test_open_auction_creates_escrow_and_emits_event() {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Auction Asset"),
+        &String::from_str(&env, "Capacity constrained"),
+        &AssetType::Tool,
+        &LicenseType::Perpetual,
+        &5_000_000,
+    );
+
+    let auction_id = client.open_auction(&admin, &asset_id, &5, &1_000, &10);
+
+    // Inspect the AUCT_OPEN event before any further contract call, since
+    // each invocation resets the event log.
+    let events = env.events().all();
+    let (_, topics, data) = events.last().unwrap();
+    let expected_topics = vec![
+        &env,
+        symbol_short!("AUCT_OPEN").into_val(&env),
+        admin.into_val(&env),
+    ];
+    assert_eq!(topics, expected_topics);
+    let (ev_auction, ev_asset, ev_capacity, ev_min_bid, ev_duration) =
+        <(u64, u64, u32, i128, u32)>::from_val(&env, &data);
+    assert_eq!(
+        (ev_auction, ev_asset, ev_capacity, ev_min_bid, ev_duration),
+        (auction_id, asset_id, 5, 1_000, 10)
+    );
+
+    let auction = client.get_auction(&auction_id).unwrap();
+    assert_eq!(auction.id, auction_id);
+    assert_eq!(auction.seller, admin);
+    assert_eq!(auction.asset_id, asset_id);
+    assert_eq!(auction.capacity, 5);
+    assert_eq!(auction.min_bid, 1_000);
+    assert_eq!(auction.duration_ledgers, 10);
+    assert_eq!(auction.open_ledger, 100);
+    assert_eq!(auction.phase, AuctionPhase::Commit);
+    assert_eq!(auction.reveal_end, 0);
+    assert_eq!(auction.token, None);
+    assert_eq!(auction.revealed.len(), 0);
+}
+
+#[test]
+fn test_open_auction_rejects_zero_capacity() {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Auction Asset"),
+        &String::from_str(&env, "desc"),
+        &AssetType::Tool,
+        &LicenseType::Perpetual,
+        &1_000,
+    );
+    let result = client.try_open_auction(&admin, &asset_id, &0, &1_000, &10);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::InvalidAuctionParams
+    );
+}
+
+#[test]
+fn test_open_auction_rejects_zero_duration() {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Auction Asset"),
+        &String::from_str(&env, "desc"),
+        &AssetType::Tool,
+        &LicenseType::Perpetual,
+        &1_000,
+    );
+    let result = client.try_open_auction(&admin, &asset_id, &3, &1_000, &0);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::InvalidAuctionParams
+    );
+}
+
+#[test]
+fn test_open_auction_rejects_non_owner() {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let stranger = Address::generate(&env);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Auction Asset"),
+        &String::from_str(&env, "desc"),
+        &AssetType::Tool,
+        &LicenseType::Perpetual,
+        &1_000,
+    );
+    let result = client.try_open_auction(&stranger, &asset_id, &3, &1_000, &10);
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::NotOwner);
+}
+
+#[test]
+fn test_open_auction_rejects_missing_asset() {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let result = client.try_open_auction(&admin, &999, &3, &1_000, &10);
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::AssetNotFound);
+}
+
+#[test]
+fn test_commit_bid_stores_hash_only_no_amount_leak() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    let bidder = Address::generate(&env);
+    mint(&env, &token, &bidder, 100_000);
+    let before = balance(&env, &token, &bidder);
+
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    // Inspect the COMMITTED event before any further contract call, since
+    // each invocation resets the event log.
+    let events = env.events().all();
+    let (_, topics, data) = events.last().unwrap();
+    let expected_topics = vec![
+        &env,
+        symbol_short!("COMMITTED").into_val(&env),
+        bidder.into_val(&env),
+    ];
+    assert_eq!(topics, expected_topics);
+    assert_eq!(<u64>::from_val(&env, &data), auction_id);
+
+    // The commitment is a hash — no bid amount is observable: no bid record,
+    // no funds moved, and the only event is the (auction, bidder) pair.
+    assert!(client.get_bid(&auction_id, &bidder).is_none());
+    assert_eq!(balance(&env, &token, &bidder), before);
+}
+
+#[test]
+fn test_commit_bid_rejects_missing_auction() {
+    let (env, _seller, _token, _auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    let bidder = Address::generate(&env);
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    let result = client.try_commit_bid(&bidder, &999, &hash);
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::AuctionNotFound);
+}
+
+#[test]
+fn test_begin_reveal_requires_commit_window_elapsed() {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let auction_id = open_auction_for(&env, &client, &admin, 5, 1_000, 10);
+
+    // Commit window still open: [100, 110)
+    let early = client.try_begin_reveal(&auction_id);
+    assert_eq!(
+        early.unwrap_err().unwrap(),
+        MarketplaceError::AuctionPhaseError
+    );
+
+    // Window closed: begin_reveal opens the reveal window at ledger 110.
+    set_ledger(&env, 110);
+    let reveal_end = client.begin_reveal(&auction_id);
+    assert_eq!(reveal_end, 120);
+    let auction = client.get_auction(&auction_id).unwrap();
+    assert_eq!(auction.phase, AuctionPhase::Reveal);
+    assert_eq!(auction.reveal_end, 120);
+}
+
+#[test]
+fn test_commit_bid_rejects_after_reveal_begins() {
+    let (env, admin, contract_id) = setup();
+    set_ledger(&env, 100);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let auction_id = open_auction_for(&env, &client, &admin, 5, 1_000, 10);
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id);
+
+    let bidder = Address::generate(&env);
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    let result = client.try_commit_bid(&bidder, &auction_id, &hash);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::AuctionPhaseError
+    );
+}
+
+#[test]
+fn test_reveal_bid_rejects_uncommitted_bidder() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id);
+
+    let bidder = Address::generate(&env);
+    let result = client.try_reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::BidNotCommitted);
+}
+
+#[test]
+fn test_reveal_bid_rejects_commitment_mismatch() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id);
+
+    // Wrong salt (but same amount): hash does not match.
+    let wrong_salt = client.try_reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(2)),
+        &token,
+    );
+    assert_eq!(
+        wrong_salt.unwrap_err().unwrap(),
+        MarketplaceError::CommitmentMismatch
+    );
+
+    // Right salt but wrong amount: hash does not match either.
+    let wrong_amount = client.try_reveal_bid(
+        &bidder,
+        &auction_id,
+        &6_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    assert_eq!(
+        wrong_amount.unwrap_err().unwrap(),
+        MarketplaceError::CommitmentMismatch
+    );
+}
+
+#[test]
+fn test_reveal_bid_rejects_below_min_bid() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    let hash = bid_hash(&env, 500, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id);
+    let result = client.try_reveal_bid(
+        &bidder,
+        &auction_id,
+        &500,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::InvalidBidAmount
+    );
+}
+
+#[test]
+fn test_reveal_bid_rejects_during_commit_phase() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    // Reveal while still in the commit window (ledger 100 < 110).
+    let result = client.try_reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::AuctionPhaseError
+    );
+}
+
+#[test]
+fn test_reveal_bid_rejects_double_reveal() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    mint(&env, &token, &bidder, 100_000);
+    let before = balance(&env, &token, &bidder);
+
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id);
+    client.reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+
+    let second = client.try_reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    assert_eq!(
+        second.unwrap_err().unwrap(),
+        MarketplaceError::BidAlreadyRevealed
+    );
+
+    // Funds locked exactly once — no double charge.
+    assert_eq!(balance(&env, &token, &bidder), before - 5_000);
+}
+
+#[test]
+fn test_reveal_after_window_closed_rejected() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 20);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    mint(&env, &token, &bidder, 100_000);
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    set_ledger(&env, 120);
+    client.begin_reveal(&auction_id); // reveal_end = 140
+
+    // Reveal just before the close: 134 < 140, and 134 >= 135 is false, so no
+    // anti-sniping extension.
+    set_ledger(&env, 134);
+    client.reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+
+    // After the window closed, revealing again is rejected.
+    set_ledger(&env, 141);
+    let late = client.try_reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    assert_eq!(
+        late.unwrap_err().unwrap(),
+        MarketplaceError::AuctionPhaseError
+    );
+}
+
+#[test]
+fn test_settle_rejects_before_reveal_window_ends() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 20);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    mint(&env, &token, &bidder, 100_000);
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    set_ledger(&env, 120);
+    client.begin_reveal(&auction_id); // reveal_end = 140
+    set_ledger(&env, 130);
+    client.reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+
+    // Still inside the reveal window.
+    let early = client.try_settle_auction(&auction_id);
+    assert_eq!(
+        early.unwrap_err().unwrap(),
+        MarketplaceError::AuctionPhaseError
+    );
+
+    set_ledger(&env, 140);
+    let winners = client.settle_auction(&auction_id);
+    assert_eq!(winners.len(), 1);
+    assert_eq!(winners.get(0).unwrap(), bidder);
+}
+
+#[test]
+fn test_settle_rejects_after_settled() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    mint(&env, &token, &bidder, 100_000);
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id); // reveal_end = 120
+    set_ledger(&env, 114);
+    client.reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+
+    set_ledger(&env, 120);
+    client.settle_auction(&auction_id);
+    let again = client.try_settle_auction(&auction_id);
+    assert_eq!(
+        again.unwrap_err().unwrap(),
+        MarketplaceError::AuctionPhaseError
+    );
+}
+
+#[test]
+fn test_full_lifecycle_ten_commit_seven_reveal_capacity_five() {
+    let (env, seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    // 10 bidders commit during the commit window [100, 110); only 7 reveal.
+    let mut bidders: Vec<Address> = Vec::new(&env);
+    for i in 0..10u8 {
+        let bidder = Address::generate(&env);
+        mint(&env, &token, &bidder, 100_000);
+        let hash = bid_hash(&env, 10_000 - i as i128 * 1_000, salt_of(i));
+        client.commit_bid(&bidder, &auction_id, &hash);
+        bidders.push_back(bidder);
+    }
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id); // reveal_end = 120
+
+    // Reveal the first 7 (bids 10_000 down to 4_000).
+    set_ledger(&env, 114);
+    for (i, bidder) in bidders.iter().take(7).enumerate() {
+        client.reveal_bid(
+            &bidder,
+            &auction_id,
+            &(10_000 - i as i128 * 1_000),
+            &BytesN::from_array(&env, &salt_of(i as u8)),
+            &token,
+        );
+    }
+
+    set_ledger(&env, 120);
+    let winners = client.settle_auction(&auction_id);
+
+    // Inspect the AUCT_SETL event before any further contract call.
+    let events = env.events().all();
+    let (_, topics, _) = events.last().unwrap();
+    let expected_topics = vec![&env, symbol_short!("AUCT_SETL").into_val(&env)];
+    assert_eq!(topics, expected_topics);
+
+    // Winners are the top 5 bids: 10_000..6_000.
+    assert_eq!(winners.len(), 5);
+    for i in 0..5usize {
+        assert_eq!(winners.get(i as u32).unwrap(), bidders.get(i as u32).unwrap());
+    }
+
+    let auction = client.get_auction(&auction_id).unwrap();
+    assert_eq!(auction.phase, AuctionPhase::Settled);
+    // Uniform second price = the 6th highest revealed bid (5_000).
+    assert_eq!(auction.clearing_price, Some(5_000));
+
+    // Each winner escrowed their bid, then received the excess back: net
+    // effect is paying exactly the uniform 5_000 clearing price.
+    for i in 0..5usize {
+        assert_eq!(balance(&env, &token, &bidders.get(i as u32).unwrap()), 95_000);
+    }
+    // Losers are fully refunded.
+    for i in 5..7usize {
+        assert_eq!(balance(&env, &token, &bidders.get(i as u32).unwrap()), 100_000);
+    }
+    // Bidders who committed but never revealed are untouched.
+    for i in 7..10usize {
+        assert_eq!(balance(&env, &token, &bidders.get(i as u32).unwrap()), 100_000);
+    }
+    // Seller received 5 winners × 5_000 (on top of the 10_000_000_000 the
+    // fixture minted to the admin/seller).
+    assert_eq!(balance(&env, &token, &seller), 10_000_000_000 + 25_000);
+}
+
+#[test]
+fn test_tie_breaking_earlier_reveal_wins() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(1, 100, 20);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let early = Address::generate(&env);
+    let late = Address::generate(&env);
+    mint(&env, &token, &early, 100_000);
+    mint(&env, &token, &late, 100_000);
+
+    let hash = bid_hash(&env, 500, salt_of(1));
+    client.commit_bid(&early, &auction_id, &hash);
+    let hash = bid_hash(&env, 500, salt_of(2));
+    client.commit_bid(&late, &auction_id, &hash);
+
+    set_ledger(&env, 120);
+    client.begin_reveal(&auction_id); // reveal_end = 140
+
+    set_ledger(&env, 122);
+    client.reveal_bid(
+        &early,
+        &auction_id,
+        &500,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    set_ledger(&env, 123);
+    client.reveal_bid(
+        &late,
+        &auction_id,
+        &500,
+        &BytesN::from_array(&env, &salt_of(2)),
+        &token,
+    );
+
+    set_ledger(&env, 140);
+    let winners = client.settle_auction(&auction_id);
+
+    // Equal bids: the earlier reveal wins; the later bidder is refunded.
+    // The winner pays the uniform second price (500) with no excess.
+    assert_eq!(winners.len(), 1);
+    assert_eq!(winners.get(0).unwrap(), early);
+    assert_eq!(balance(&env, &token, &early), 99_500); // paid 500, excess 0
+    assert_eq!(balance(&env, &token, &late), 100_000); // full refund
+}
+
+#[test]
+fn test_capacity_exactly_met_all_win_at_reserve() {
+    let (env, seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    // Exactly 5 bidders, all reveal. Commits happen in the commit window.
+    let mut bidders: Vec<Address> = Vec::new(&env);
+    for i in 0..5u8 {
+        let bidder = Address::generate(&env);
+        mint(&env, &token, &bidder, 100_000);
+        let amount = 10_000 - i as i128 * 1_000;
+        let hash = bid_hash(&env, amount, salt_of(i));
+        client.commit_bid(&bidder, &auction_id, &hash);
+        bidders.push_back(bidder);
+    }
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id); // reveal_end = 120
+
+    for (i, bidder) in bidders.iter().enumerate() {
+        let amount = 10_000 - i as i128 * 1_000;
+        set_ledger(&env, 110 + i as u32);
+        client.reveal_bid(
+            &bidder,
+            &auction_id,
+            &amount,
+            &BytesN::from_array(&env, &salt_of(i as u8)),
+            &token,
+        );
+    }
+
+    set_ledger(&env, 120);
+    let winners = client.settle_auction(&auction_id);
+    assert_eq!(winners.len(), 5);
+
+    let auction = client.get_auction(&auction_id).unwrap();
+    // Fewer than capacity+1 revealed bids → uniform price is the reserve.
+    assert_eq!(auction.clearing_price, Some(1_000));
+
+    for (_i, bidder) in bidders.iter().enumerate() {
+        // Net of escrow and excess refund, each winner paid the 1_000 reserve
+        // price exactly.
+        assert_eq!(balance(&env, &token, &bidder), 99_000);
+    }
+    // Seller receives 5 × 1_000 (on top of the fixture's 10_000_000_000 mint).
+    assert_eq!(balance(&env, &token, &seller), 10_000_000_000 + 5_000);
+}
+
+#[test]
+fn test_anti_sniping_extends_reveal_window() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    mint(&env, &token, &alice, 100_000);
+    mint(&env, &token, &bob, 100_000);
+
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&alice, &auction_id, &hash);
+    let hash = bid_hash(&env, 4_000, salt_of(2));
+    client.commit_bid(&bob, &auction_id, &hash);
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id); // reveal_end = 120
+
+    // Alice reveals at ledger 116 — inside the final 5 ledgers (>= 115), so
+    // the window extends by 5 to 125.
+    set_ledger(&env, 116);
+    let end = client.reveal_bid(
+        &alice,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+    assert_eq!(end, 125);
+    // EXTENDED (then REVEALED) was emitted by this call — the event log
+    // resets on every invocation, so inspect it before the next call. The
+    // token transfer event precedes the contract's own events.
+    let expected_topics = vec![
+        &env,
+        symbol_short!("EXTENDED").into_val(&env),
+        alice.into_val(&env),
+    ];
+    let events = env.events().all();
+    assert!(
+        events.iter().any(|(_, topics, _)| topics == expected_topics),
+        "EXTENDED event missing"
+    );
+
+    // Bob reveals at 121 — the original close (120) has passed, but the
+    // extended window is still open. 121 >= 120 extends again to 130.
+    set_ledger(&env, 121);
+    let end = client.reveal_bid(
+        &bob,
+        &auction_id,
+        &4_000,
+        &BytesN::from_array(&env, &salt_of(2)),
+        &token,
+    );
+    assert_eq!(end, 130);
+    let expected_topics = vec![
+        &env,
+        symbol_short!("EXTENDED").into_val(&env),
+        bob.into_val(&env),
+    ];
+    let events = env.events().all();
+    assert!(
+        events.iter().any(|(_, topics, _)| topics == expected_topics),
+        "EXTENDED event missing"
+    );
+
+    // Settlement is still blocked inside the extended window.
+    set_ledger(&env, 126);
+    let early = client.try_settle_auction(&auction_id);
+    assert_eq!(
+        early.unwrap_err().unwrap(),
+        MarketplaceError::AuctionPhaseError
+    );
+
+    // The extension actually delayed settlement: at the ORIGINAL close (120)
+    // settlement would have happened; now it only settles at 130.
+    set_ledger(&env, 130);
+    let winners = client.settle_auction(&auction_id);
+    assert_eq!(winners.len(), 2);
+}
+
+#[test]
+fn test_committed_but_never_revealed_forfeits_nothing() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(2, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let revealer = Address::generate(&env);
+    let no_show = Address::generate(&env);
+    mint(&env, &token, &revealer, 100_000);
+    mint(&env, &token, &no_show, 100_000);
+
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&revealer, &auction_id, &hash);
+    let hash = bid_hash(&env, 9_999, salt_of(2));
+    client.commit_bid(&no_show, &auction_id, &hash);
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id); // reveal_end = 120
+
+    set_ledger(&env, 114);
+    client.reveal_bid(
+        &revealer,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+
+    set_ledger(&env, 120);
+    let winners = client.settle_auction(&auction_id);
+    assert_eq!(winners.len(), 1);
+    assert_eq!(winners.get(0).unwrap(), revealer);
+    // The no-show bidder did not win...
+    let auction = client.get_auction(&auction_id).unwrap();
+    assert!(!auction.revealed.contains(&no_show));
+    // ...and forfeited nothing: no funds were ever escrowed.
+    assert_eq!(balance(&env, &token, &no_show), 100_000);
+}
+
+#[test]
+fn test_get_bid_returns_revealed_bid() {
+    let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 10);
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bidder = Address::generate(&env);
+    mint(&env, &token, &bidder, 100_000);
+
+    let hash = bid_hash(&env, 5_000, salt_of(1));
+    client.commit_bid(&bidder, &auction_id, &hash);
+
+    set_ledger(&env, 110);
+    client.begin_reveal(&auction_id);
+    set_ledger(&env, 114);
+    client.reveal_bid(
+        &bidder,
+        &auction_id,
+        &5_000,
+        &BytesN::from_array(&env, &salt_of(1)),
+        &token,
+    );
+
+    let bid = client.get_bid(&auction_id, &bidder).unwrap();
+    assert_eq!(bid.amount, 5_000);
+    assert_eq!(bid.token, token);
+    assert_eq!(bid.revealed_at, 114);
 }
