@@ -16,7 +16,7 @@ const { advancedSearch } = require("../utils/advancedSearch");
 const COLUMNS = `
   id, owner, name, description, asset_type, license_type, price,
   version, usage_count, is_active, tags, flagged, flagged_at, created_at,
-  indexed_at, updated_at, deleted_at
+  indexed_at, updated_at, deleted_at, usd_price_cents, accepted_tokens
 `;
 
 function availableVersions(version) {
@@ -49,6 +49,8 @@ function mapAsset(row) {
     indexedAt: toMs(row.indexed_at),
     updatedAt: toMs(row.updated_at),
     deletedAt: toMs(row.deleted_at),
+    usdPriceCents: row.usd_price_cents,
+    acceptedTokens: row.accepted_tokens || ["native"],
   };
 }
 
@@ -70,29 +72,33 @@ async function create(asset, client) {
     usageCount = 0,
     isActive = true,
     tags = [],
+    usdPriceCents = null,
+    acceptedTokens = ["native"],
     createdAt,
   } = asset;
 
   const { rows } = await run(
     `INSERT INTO assets
        (id, owner, name, description, asset_type, license_type, price, version,
-        usage_count, is_active, tags, created_at)
+        usage_count, is_active, tags, usd_price_cents, accepted_tokens, created_at)
      VALUES
-       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
-        COALESCE(to_timestamp($12::double precision / 1000.0), now()))
+       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13::jsonb,
+        COALESCE(to_timestamp($14::double precision / 1000.0), now()))
      ON CONFLICT (id) DO UPDATE SET
-       owner        = EXCLUDED.owner,
-       name         = EXCLUDED.name,
-       description  = EXCLUDED.description,
-       asset_type   = EXCLUDED.asset_type,
-       license_type = EXCLUDED.license_type,
-       price        = EXCLUDED.price,
-       version      = CASE WHEN $13 THEN EXCLUDED.version ELSE assets.version END,
-       usage_count  = EXCLUDED.usage_count,
-       is_active    = EXCLUDED.is_active,
-       tags         = EXCLUDED.tags,
-       indexed_at   = now(),
-       updated_at   = now()
+       owner           = EXCLUDED.owner,
+       name            = EXCLUDED.name,
+       description     = EXCLUDED.description,
+       asset_type      = EXCLUDED.asset_type,
+       license_type    = EXCLUDED.license_type,
+       price           = EXCLUDED.price,
+       version         = CASE WHEN $15 THEN EXCLUDED.version ELSE assets.version END,
+       usage_count     = EXCLUDED.usage_count,
+       is_active       = EXCLUDED.is_active,
+       tags            = EXCLUDED.tags,
+       usd_price_cents = EXCLUDED.usd_price_cents,
+       accepted_tokens = EXCLUDED.accepted_tokens,
+       indexed_at      = now(),
+       updated_at      = now()
      RETURNING ${COLUMNS}`,
     [
       id,
@@ -106,6 +112,8 @@ async function create(asset, client) {
       usageCount,
       isActive,
       JSON.stringify(tags),
+      usdPriceCents,
+      JSON.stringify(acceptedTokens),
       msParam(createdAt),
       hasVersion,
     ],

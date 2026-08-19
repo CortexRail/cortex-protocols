@@ -17,6 +17,7 @@ const complianceRouter = require("./routes/compliance");
 const protocolRouter = require("./routes/protocol");
 const escrowRouter = require("./routes/escrow");
 const disputesRouter = require("./routes/disputes");
+const pricingRouter = require("./routes/pricing");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -65,6 +66,8 @@ app.use("/api/v1/licenses", licensesRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/stellar", stellarRouter);
 app.use("/api/v1/internal", internalRouter);
+app.use("/api/v1/internal/pricing", pricingRouter);
+app.use("/api/v1/pricing", pricingRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/admin", complianceRouter);
 app.use("/api/v1/protocol", protocolRouter);

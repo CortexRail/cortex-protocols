@@ -220,6 +220,32 @@ router.post(
 );
 
 /**
+ * GET /api/v1/assets/:id/price
+ * Get current converted price in a requested token with commitment payload.
+ * Query param: token (Stellar address)
+ */
+router.get(
+  "/:id/price",
+  [
+    param("id").isInt({ min: 1 }),
+    query("token")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar token address"),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const { getPriceCommitment } = require("../services/multiTokenPurchaseService");
+    const commitment = await getPriceCommitment({
+      assetId: Number(req.params.id),
+      token: req.query.token,
+    });
+    res.json(commitment);
+  })
+);
+
+/**
  * GET /api/v1/assets/types/list
  * Return all valid asset types and license types.
  */
