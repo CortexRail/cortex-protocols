@@ -11,6 +11,9 @@ see `.github/CONTRIBUTING.md` for the release process.
 
 ### Added
 
+- Freighter wallet connect in the site header: connect/disconnect flow, a
+  truncated address once connected, and a guided install link when the
+  Freighter extension is missing (frontend)
 - Stream dashboard UI at `/streams` for viewing active payment streams with
   live progress, status filters, and volume stat tiles (frontend)
 - `GET /health/contracts` deep health check reporting Soroban RPC / Horizon
@@ -20,6 +23,11 @@ see `.github/CONTRIBUTING.md` for the release process.
   entrypoint, `version` / `get_owner` queries, and a
   `contract/scripts/upgrade.sh` helper that uploads new WASM and invokes the
   upgrade in place (contract)
+- Marketplace `list_asset` validation guards: non-positive prices are rejected
+  with `InvalidPrice`, empty or over-length names/descriptions with
+  `InvalidMetadata`, and listings beyond the 10 000-asset limit with
+  `AssetLimitReached`; the `LISTED` event payload is now asserted by unit tests
+  (contract)
 - `CHANGELOG.md`, a tag-driven GitHub release workflow, and a
   `scripts/release.sh` version-bump helper
 

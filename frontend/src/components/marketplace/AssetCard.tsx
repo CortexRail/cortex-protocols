@@ -1,61 +1,58 @@
 import Link from "next/link";
+import { Asset } from "@/lib/api/assets";
+import { AssetTypeBadge } from "./AssetTypeBadge";
+import { LicenseBadge } from "./LicenseBadge";
+import { PriceDisplay } from "./PriceDisplay";
+import { truncateText, formatCompactNumber, getReputationColor, getReputationBg } from "@/lib/formatters";
 
 interface AssetCardProps {
-  id: string;
-  name: string;
-  type: string;
-  price: number;
-  description: string;
-  version?: number;
-  isActive?: boolean;
+  asset: Asset;
 }
 
-function formatPrice(price: number) {
-  return `${price.toLocaleString()} stroops`;
-}
-
-export default function AssetCard({
-  id,
-  name,
-  type,
-  price,
-  description,
-  version = 1,
-  isActive = true,
-}: AssetCardProps) {
+export function AssetCard({ asset }: AssetCardProps) {
   return (
-    <Link href={`/marketplace/${id}`} className="group">
-      <article className="flex h-full flex-col rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition-colors group-hover:border-purple-500">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <span className="rounded-full bg-purple-500/15 px-3 py-1 text-xs font-semibold text-purple-300">
-            Version {version}
-          </span>
-          <span className={`text-xs font-medium ${isActive ? "text-green-400" : "text-zinc-500"}`}>
-            {isActive ? "Active" : "Inactive"}
-          </span>
+    <Link href={`/marketplace/${asset.id}`}>
+      <div className="group h-full p-5 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-purple-500 transition-colors cursor-pointer">
+        {/* Header with type and license */}
+        <div className="flex items-start justify-between mb-3 gap-2">
+          <AssetTypeBadge type={asset.type} variant="sm" />
+          <LicenseBadge type={asset.licenseType} />
         </div>
-        <h2 className="text-xl font-bold transition-colors group-hover:text-purple-400">
-          {name}
-        </h2>
-        <div className="mt-2 flex items-center gap-2">
-          <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
-            {type}
-          </span>
-        </div>
-        <p className="mt-3 line-clamp-3 flex-1 text-sm leading-6 text-zinc-400">
-          {description}
+
+        {/* Name */}
+        <h3 className="text-lg font-bold mb-2 group-hover:text-purple-400 transition-colors line-clamp-2">
+          {asset.name}
+        </h3>
+
+        {/* Description */}
+        <p className="text-sm text-zinc-400 mb-4 line-clamp-2">
+          {truncateText(asset.description, 90)}
         </p>
-        <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-zinc-800 pt-5 text-sm">
-          <div>
-            <dt className="text-xs text-zinc-500">Price</dt>
-            <dd className="mt-1 font-semibold">{formatPrice(price)}</dd>
+
+        {/* Owner and stats */}
+        <div className="mb-4 pb-4 border-t border-zinc-800">
+          <div className="flex items-center justify-between mt-3">
+            <div>
+              <p className="text-xs text-zinc-500 mb-1">Owner</p>
+              <p className="text-sm font-semibold text-zinc-300">{asset.owner.name}</p>
+            </div>
+            <div className={`text-xs font-semibold px-2 py-1 rounded ${getReputationBg(asset.owner.reputation)} ${getReputationColor(asset.owner.reputation)}`}>
+              {Math.round(asset.owner.reputation)}%
+            </div>
           </div>
+        </div>
+
+        {/* Usage and price footer */}
+        <div className="flex items-end justify-between">
           <div>
-            <dt className="text-xs text-zinc-500">Type</dt>
-            <dd className="mt-1 font-semibold">{type}</dd>
+            <p className="text-xs text-zinc-500 mb-1">Used</p>
+            <p className="text-sm font-semibold">
+              {formatCompactNumber(asset.usageCount)} times
+            </p>
           </div>
-        </dl>
-      </article>
+          <PriceDisplay priceInStroops={asset.priceInStroops} showLabel={false} />
+        </div>
+      </div>
     </Link>
   );
 }

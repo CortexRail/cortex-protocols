@@ -86,9 +86,9 @@ async function route(functionName, intent, fn) {
     try {
       return await fn(client);
     } finally {
-      // Every read has to hand its connection back. Without this the pool
-      // leaks one client per routed read, exhausts under load, and never
-      // drains on shutdown.
+      // The connection must go back to the pool on the success path too —
+      // leaking it here keeps the pool from ever draining, so a checked-out
+      // client would hang `closePool()` on shutdown.
       client.release();
     }
   } catch (err) {

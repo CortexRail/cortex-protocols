@@ -52,4 +52,31 @@ pub enum MarketplaceError {
 
     /// Arithmetic overflow or underflow occurred.
     ArithmeticError = 15,
+
+    /// Escrow funds have already been released to seller.
+    EscrowAlreadyReleased = 16,
+
+    /// Dispute window has closed for this escrow.
+    DisputeWindowClosed = 17,
+
+    /// Caller or voter is not a registered arbitrator.
+    NotArbitrator = 18,
+
+    /// Escrow hold not found.
+    EscrowNotFound = 19,
+
+    /// Escrow is frozen by an open dispute.
+    EscrowDisputed = 20,
+
+    /// Dispute not found.
+    DisputeNotFound = 21,
+
+    /// Dispute has already been resolved.
+    DisputeAlreadyResolved = 22,
+
+    /// Invalid refund basis points (must be between 0 and 10000).
+    InvalidRefundBps = 23,
+
+    /// No valid arbitrator votes provided.
+    NoArbitratorVotes = 24,
 }

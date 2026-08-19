@@ -82,7 +82,7 @@ describe("readQuery / writeQuery", () => {
     await writeQuery(
       `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash, event_index)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [100, "CCONTRACT", ["EVT"], '{}', "tx001", 0]
+      [100, "CCONTRACT", "{EVT}", '{}', "tx001", 0]
     );
     const { rows } = await query("SELECT count(*)::int AS cnt FROM events_log");
     expect(rows[0].cnt).toBe(1);
@@ -92,7 +92,7 @@ describe("readQuery / writeQuery", () => {
     await writeQuery(
       `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash, event_index)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [200, "CCONTRACT", ["EVT2"], '{}', "tx002", 0]
+      [200, "CCONTRACT", "{EVT2}", '{}', "tx002", 0]
     );
     const { rows } = await readQuery("SELECT ledger FROM events_log WHERE ledger = $1", [200]);
     expect(rows[0].ledger).toBe(200);

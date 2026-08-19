@@ -31,8 +31,8 @@ describe("GET /api/v1/internal/db-stats", () => {
       .set("x-admin-key", ADMIN_KEY)
       .expect(200);
 
-    // The route reports the write pool and the read pool separately; without a
-    // replica configured the read side is a note pointing at the write pool.
+    // Since read-replica routing landed the payload reports the write pool and
+    // the read pool separately.
     expect(res.body.pool.write).toEqual(
       expect.objectContaining({
         max: expect.any(Number),
