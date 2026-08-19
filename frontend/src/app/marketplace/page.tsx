@@ -1,111 +1,122 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getAssets } from "@/lib/marketplace-api";
-import CategoryNav from "@/components/marketplace/CategoryNav";
-import type { Asset } from "@/types/marketplace";
-
-function formatPrice(price: number) {
-  return `${price.toLocaleString()} stroops`;
-}
+import { useAssets } from "@/hooks/useAssets";
+import { useAssetFilters } from "@/hooks/useAssetFilters";
+import { AssetGrid } from "@/components/marketplace/AssetGrid";
+import { SearchBar } from "@/components/marketplace/SearchBar";
+import { FilterSidebar } from "@/components/marketplace/FilterSidebar";
+import { SortDropdown } from "@/components/marketplace/SortDropdown";
+import { PaginationBar } from "@/components/marketplace/PaginationBar";
 
 export default function MarketplacePage() {
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    filters,
+    updateSearch,
+    updateType,
+    updateLicenseType,
+    updatePriceRange,
+    updateMinReputation,
+    updateSortBy,
+    updatePage,
+    reset,
+  } = useAssetFilters();
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const { data: assets, isLoading, error, meta } = useAssets(filters);
 
-    getAssets(controller.signal)
-      .then((response) => setAssets(Array.isArray(response.data) ? response.data : []))
-      .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setError(reason instanceof Error ? reason.message : "Unable to load assets");
-      })
-      .finally(() => setLoading(false));
+  const [pageSize, setPageSize] = useState(12);
 
-    return () => controller.abort();
-  }, []);
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    updatePage(1);
+  };
 
   return (
-    <main className="min-h-screen bg-black px-6 py-12 text-white">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-10 flex flex-col gap-4 border-b border-zinc-800 pb-8 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <Link href="/" className="mb-4 inline-block text-sm text-zinc-400 hover:text-white">
-              ← Intelligence Rail
-            </Link>
-            <p className="mb-2 font-mono text-xs uppercase tracking-[0.25em] text-purple-400">
-              Intelligence assets
-            </p>
-            <h1 className="text-4xl font-bold tracking-tight">Marketplace</h1>
-            <p className="mt-2 max-w-2xl text-zinc-400">
-              Discover versioned prompts, workflows, tools, and reasoning systems.
-            </p>
-          </div>
-        </header>
-
-        {loading ? (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-16 text-center text-zinc-400">
-            Loading marketplace assets…
-          </div>
-        ) : error ? (
-          <div role="alert" className="rounded-xl border border-red-900/70 bg-red-950/30 px-6 py-10 text-center">
-            <p className="font-semibold text-red-300">Marketplace unavailable</p>
-            <p className="mt-2 text-sm text-red-200/70">{error}</p>
-          </div>
-        ) : (
-          <div className="grid gap-8 lg:grid-cols-[1fr_280px]">
-            {/* Assets grid */}
+    <main className="min-h-screen bg-black text-white pt-12 px-6 pb-12">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-12">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
             <div>
-              {assets.length === 0 ? (
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-16 text-center">
-                  <p className="font-semibold">No assets are listed yet</p>
-                  <p className="mt-2 text-sm text-zinc-500">New intelligence assets will appear here.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                  {assets.map((asset) => (
-                    <Link key={asset.id} href={`/marketplace/${asset.id}`} className="group">
-                      <article className="flex h-full flex-col rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition-colors group-hover:border-purple-500">
-                        <div className="mb-5 flex items-center justify-between gap-3">
-                          <span className="rounded-full bg-purple-500/15 px-3 py-1 text-xs font-semibold text-purple-300">
-                            Version {asset.version}
-                          </span>
-                          <span className={`text-xs font-medium ${asset.isActive ? "text-green-400" : "text-zinc-500"}`}>
-                            {asset.isActive ? "Active" : "Inactive"}
-                          </span>
-                        </div>
-                        <h2 className="text-xl font-bold transition-colors group-hover:text-purple-400">
-                          {asset.name}
-                        </h2>
-                        <p className="mt-3 line-clamp-3 flex-1 text-sm leading-6 text-zinc-400">
-                          {asset.description}
-                        </p>
-                        <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-zinc-800 pt-5 text-sm">
-                          <div>
-                            <dt className="text-xs text-zinc-500">Price</dt>
-                            <dd className="mt-1 font-semibold">{formatPrice(asset.price)}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-xs text-zinc-500">License</dt>
-                            <dd className="mt-1 font-semibold">{asset.licenseType}</dd>
-                          </div>
-                        </dl>
-                      </article>
-                    </Link>
-                  ))}
-                </div>
-              )}
+              <h1 className="text-4xl font-bold mb-2">Marketplace</h1>
+              <p className="text-zinc-400">
+                Discover and exchange intelligence assets on the Stellar network
+              </p>
             </div>
-
-            {/* Sidebar */}
-            <aside className="lg:sticky lg:top-12 lg:h-fit">
-              <CategoryNav />
-            </aside>
+            <Link
+              href="/marketplace/new"
+              className="px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold transition-colors whitespace-nowrap"
+            >
+              Create Asset
+            </Link>
           </div>
+
+          {/* Search */}
+          <div className="mb-6">
+            <SearchBar
+              onSearch={updateSearch}
+              resultCount={meta?.total}
+            />
+          </div>
+
+          {/* Sort controls */}
+          <div className="flex items-center justify-between mb-6">
+            <SortDropdown
+              value={filters.sortBy}
+              onChange={updateSortBy}
+            />
+            <button
+              onClick={reset}
+              className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+            >
+              Clear filters
+            </button>
+          </div>
+        </div>
+
+        {/* Main content */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
+          {/* Sidebar */}
+          <div className="md:col-span-1">
+            <FilterSidebar
+              selectedType={filters.type}
+              selectedLicense={filters.licenseType}
+              priceRange={[
+                filters.minPrice || 0,
+                filters.maxPrice || 10_000_000,
+              ]}
+              minReputation={filters.minReputation || 0}
+              onTypeChange={updateType}
+              onLicenseChange={updateLicenseType}
+              onPriceChange={updatePriceRange}
+              onReputationChange={updateMinReputation}
+            />
+          </div>
+
+          {/* Assets Grid */}
+          <div className="md:col-span-3">
+            {error && (
+              <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg text-red-400 mb-6">
+                {error}
+              </div>
+            )}
+            <AssetGrid
+              assets={assets}
+              isLoading={isLoading}
+            />
+          </div>
+        </div>
+
+        {/* Pagination */}
+        {meta && !isLoading && (
+          <PaginationBar
+            currentPage={meta.page}
+            totalPages={meta.pages}
+            pageSize={pageSize}
+            onPageChange={updatePage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         )}
       </div>
     </main>

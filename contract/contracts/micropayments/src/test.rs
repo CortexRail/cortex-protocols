@@ -242,7 +242,7 @@ fn test_batch_settle_and_claimable_batch() {
     assert_eq!(claimables.get(id1).unwrap(), 100_000);
     assert_eq!(claimables.get(id2).unwrap(), 200_000);
 
-    let settled = client.batch_settle(&recipient, &query_ids);
+    let settled = client.batch_settle(&recipient, &query_ids, &1);
     assert_eq!(settled.get(id1).unwrap(), 100_000);
     assert_eq!(settled.get(id2).unwrap(), 200_000);
 

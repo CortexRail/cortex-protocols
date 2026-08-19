@@ -7,7 +7,25 @@ import {
 
 import { STELLAR_NETWORK } from "./constants";
 
+/** Where users without the extension can install Freighter. */
+export const FREIGHTER_INSTALL_URL = "https://www.freighter.app/";
+
+/** Generic wrapper for failures coming back from the Freighter extension. */
 export class FreighterError extends Error {}
+
+/** Thrown when the Freighter extension itself is not installed at all. */
+export class FreighterNotInstalledError extends FreighterError {}
+
+/** True when the given failure means the Freighter extension is missing. */
+export function isFreighterNotInstalled(error: unknown): boolean {
+  return error instanceof FreighterNotInstalledError;
+}
+
+/** Short human-readable form of a Stellar public key, e.g. `GABC…WXYZ`. */
+export function truncateAddress(address: string): string {
+  if (address.length <= 8) return address;
+  return `${address.slice(0, 4)}…${address.slice(-4)}`;
+}
 
 export interface WalletConnection {
   address: string;
@@ -36,7 +54,7 @@ export function networkMatches(network: string | undefined | null): boolean {
 export async function connectWallet(): Promise<WalletConnection> {
   const connected = await isConnected();
   if (!connected.isConnected) {
-    throw new FreighterError(
+    throw new FreighterNotInstalledError(
       "Freighter wallet was not detected. Install the Freighter browser extension to continue."
     );
   }

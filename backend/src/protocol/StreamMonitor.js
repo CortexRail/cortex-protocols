@@ -21,6 +21,22 @@ function registerClient(req, res) {
 }
 
 /**
+ * Push an arbitrary named event to every subscribed client.
+ * Dead sockets are dropped rather than allowed to throw at the caller.
+ */
+function broadcast(event, payload) {
+  const message = `event: ${event}\ndata: ${JSON.stringify({ event, ...payload })}\n\n`;
+
+  for (const client of sseClients) {
+    try {
+      client.write(message);
+    } catch (_err) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+/**
  * Check if the stream has less than or equal to 10% of calls remaining.
  * Emits a LOW_BALANCE event to all listening clients if true.
  */
@@ -52,6 +68,7 @@ function checkStreamAndAlert(stream) {
 
 module.exports = {
   registerClient,
+  broadcast,
   checkStreamAndAlert,
   _sseClients: sseClients,
 };
