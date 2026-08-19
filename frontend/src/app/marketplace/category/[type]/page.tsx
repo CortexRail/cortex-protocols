@@ -1,96 +1,78 @@
-import Link from "next/link";
-import CategoryContent from "./content";
+"use client";
 
-const ASSET_CATEGORIES = [
-  {
-    type: "Prompt",
-    name: "Prompts",
-    description: "Pre-crafted prompt templates and instructions for AI models",
-  },
-  {
-    type: "Workflow",
-    name: "Workflows",
-    description: "Complex multi-step processes and automation templates",
-  },
-  {
-    type: "ReasoningChain",
-    name: "Reasoning Chains",
-    description: "Step-by-step reasoning frameworks and logic systems",
-  },
-  {
-    type: "Dataset",
-    name: "Datasets",
-    description: "Curated data collections for training and evaluation",
-  },
-  {
-    type: "Evaluator",
-    name: "Evaluators",
-    description: "Testing and validation frameworks for AI outputs",
-  },
-  {
-    type: "MemorySystem",
-    name: "Memory Systems",
-    description: "Context retention and recall mechanisms for AI",
-  },
-  {
-    type: "ModelInstruction",
-    name: "Model Instructions",
-    description: "Custom instructions and guidelines for LLM behavior",
-  },
-  {
-    type: "Tool",
-    name: "Tools",
-    description: "Executable utilities and integrations for workflows",
-  },
+import Link from "next/link";
+import { useAssets } from "@/hooks/useAssets";
+import { AssetGrid } from "@/components/marketplace/AssetGrid";
+import { AssetType } from "@/lib/api/assets";
+import { getAssetTypeIcon } from "@/lib/formatters";
+
+const ASSET_TYPES: AssetType[] = [
+  "prompt",
+  "workflow",
+  "reasoning",
+  "agent",
+  "dataset",
+  "model",
+  "integration",
+  "template",
 ];
 
-export default function CategoryPage({ params }: { params: { type: string } }) {
-  const category = ASSET_CATEGORIES.find((cat) => cat.type === params.type);
+interface CategoryPageProps {
+  params: {
+    type: string;
+  };
+}
 
-  if (!category) {
-    return (
-      <main className="min-h-screen bg-black px-6 py-12 text-white">
-        <div className="mx-auto max-w-5xl">
-          <div className="rounded-xl border border-red-900/70 bg-red-950/30 px-6 py-12 text-center">
-            <h1 className="text-2xl font-bold text-red-300">Category not found</h1>
-            <p className="mt-2 text-red-200/70">This asset category does not exist.</p>
-            <Link href="/marketplace" className="mt-6 inline-block text-sm font-semibold text-purple-400 hover:text-purple-300">
-              ← Back to Marketplace
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
+export function generateStaticParams() {
+  return ASSET_TYPES.map((type) => ({
+    type,
+  }));
+}
+
+export default function CategoryPage({ params }: CategoryPageProps) {
+  const type = params.type as AssetType;
+  const { data: assets, isLoading, error } = useAssets({
+    type,
+    limit: 48,
+  });
+
+  const categoryTitle =
+    type.charAt(0).toUpperCase() + type.slice(1);
+  const icon = getAssetTypeIcon(type);
 
   return (
-    <main className="min-h-screen bg-black px-6 py-12 text-white">
-      <div className="mx-auto max-w-7xl">
-        {/* Breadcrumb */}
-        <Link href="/marketplace" className="mb-8 inline-block text-sm text-zinc-400 hover:text-white">
-          ← Marketplace
-        </Link>
-
+    <main className="min-h-screen bg-black text-white pt-12 px-6 pb-12">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <header className="mb-12 border-b border-zinc-800 pb-8">
-          <div className="mb-4 inline-block rounded-full bg-purple-500/15 px-3 py-1 text-sm font-semibold text-purple-300">
-            Asset Category
+        <div className="mb-12">
+          <div className="flex items-center gap-4 mb-4">
+            <span className="text-4xl">{icon}</span>
+            <div>
+              <h1 className="text-4xl font-bold">{categoryTitle}</h1>
+              <p className="text-zinc-400">
+                Browse all {categoryTitle.toLowerCase()} assets
+              </p>
+            </div>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">{category.name}</h1>
-          <p className="mt-3 max-w-3xl text-lg text-zinc-400">{category.description}</p>
-        </header>
 
-        {/* Content */}
-        <CategoryContent type={params.type} categoryName={category.name} />
+          <Link
+            href="/marketplace"
+            className="inline-flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors mt-6"
+          >
+            ← Back to Marketplace
+          </Link>
+        </div>
+
+        {/* Error state */}
+        {error && (
+          <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg text-red-400 mb-6">
+            Failed to load assets: {error}
+          </div>
+        )}
+
+        {/* Grid */}
+        <AssetGrid assets={assets} isLoading={isLoading} columns={3} />
       </div>
     </main>
   );
 }
-
-export function generateStaticParams() {
-  return ASSET_CATEGORIES.map((category) => ({
-    type: category.type,
-  }));
-}
-
-export const revalidate = 3600; // Revalidate every hour (ISR)

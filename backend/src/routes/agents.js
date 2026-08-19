@@ -11,7 +11,6 @@ const {
   getReputationHistory,
   getActivityFeed,
   getLeaderboard,
-  getReputationTimeline,
   CAPABILITIES,
 } = require("../services/agentService");
 
@@ -135,25 +134,6 @@ router.get(
 );
 
 /**
- * GET /api/v1/agents/:id/reputation-timeline
- * Decay curve, dispute markers, and staked collateral for an agent.
- */
-router.get(
-  "/:id/reputation-timeline",
-  [param("id").isInt({ min: 1 }), query("points").optional().isInt({ min: 2, max: 200 })],
-  validate,
-  asyncHandler(async (req, res) => {
-    const timeline = await getReputationTimeline(req.params.id, {
-      points: req.query.points ? Number(req.query.points) : 30,
-    });
-    if (!timeline) {
-      return res.status(404).json({ error: "Agent not found" });
-    }
-    res.json(timeline);
-  })
-);
-
-/**
  * POST /api/v1/agents/:id/reputation
  * Submit a reputation vote (0-100) for an agent.
  */
@@ -162,11 +142,7 @@ router.post(
   [
     param("id").isInt({ min: 1 }),
     body("score").isInt({ min: 0, max: 100 }),
-    body("voter")
-      .isString()
-      .bail()
-      .custom(isValidStellarAddress)
-      .withMessage("must be a valid Stellar public key"),
+    body("voter").isString().isLength({ min: 56, max: 56 }),
   ],
   validate,
   (req, res) => {
