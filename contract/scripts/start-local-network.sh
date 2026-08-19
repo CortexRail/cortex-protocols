@@ -22,11 +22,14 @@ set -euo pipefail
 RPC_PORT="${LOCAL_RPC_PORT:-8000}"
 ACCOUNTS="${LOCAL_ACCOUNTS:-10}"
 CONTAINER_NAME="${CONTAINER_NAME:-cortex-soroban-rpc}"
+NETWORK_NAME="${DEPLOY_NETWORK:-local}"
+NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Standalone Network ; February 2017}"
 QUICKSTART_IMAGE="${QUICKSTART_IMAGE:-stellar/quickstart:testing}"
 HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-300}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ACCOUNTS_FILE="$CONTRACT_DIR/local-accounts.json"
+RPC_URL="${SOROBAN_RPC_URL:-http://localhost:${RPC_PORT}/soroban/rpc}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 log_info()  { echo -e "${CYAN}[INFO]${RESET}  $*"; }
@@ -107,11 +110,15 @@ wait_for_health() {
     attempt=$(( attempt + 1 ))
 
     # Horizon reports a core latest_ledger once the network has closed a ledger.
+    # Its JSON is pretty-printed, so whitespace is stripped before matching —
+    # `"core_latest_ledger": 3949` does not match a pattern expecting the digits
+    # to follow the colon immediately.
     local ledger
     ledger=$(curl -s --max-time 5 "http://localhost:${RPC_PORT}/" \
-      | grep -o '"core_latest_ledger":[0-9]*' | head -1 | cut -d: -f2 || true)
+      | tr -d ' \t\r\n' \
+      | grep -o '"core_latest_ledger":[0-9][0-9]*' | head -1 | cut -d: -f2 || true)
 
-    if [[ -n "${ledger:-}" && "$ledger" -gt 1 ]]; then
+    if [[ "${ledger:-0}" =~ ^[0-9]+$ && "${ledger:-0}" -gt 1 ]]; then
       log_ok "network healthy at ledger $ledger (after ${attempt} checks)"
       return 0
     fi
@@ -129,26 +136,62 @@ wait_for_health() {
 
 # ── Account funding ───────────────────────────────────────────────────────────
 
+# Generates an identity without funding it, across CLI versions.
+#   stellar  ~21: funds by default, so skipping it needs --no-fund
+#   stellar >= 22: does not fund by default and dropped --no-fund entirely
+keys_generate() {
+  local name="$1"
+  stellar keys generate --no-fund "$name" --network "$NETWORK_NAME" &>/dev/null && return 0
+  stellar keys generate "$name" --network "$NETWORK_NAME" &>/dev/null && return 0
+  stellar keys generate "$name" &>/dev/null
+}
+
+# Prints an identity's secret key, across CLI versions.
+#   stellar >= 22: `keys secret`
+#   stellar  ~21:  `keys show`
+key_secret() {
+  stellar keys secret "$1" 2>/dev/null || stellar keys show "$1" 2>/dev/null || true
+}
+
 fund_accounts() {
   log_step "Funding $ACCOUNTS test accounts via friendbot"
+
+  if ! command -v stellar &>/dev/null; then
+    log_warn "stellar CLI not found — skipping key generation."
+    log_warn "The network is up; install the CLI to generate and fund simulation accounts."
+    printf '{"network":"standalone","rpcPort":%s,"accounts":[]}\n' "$RPC_PORT" > "$ACCOUNTS_FILE"
+    return 0
+  fi
+
+  # Key generation targets a named network, so it has to exist in the CLI's
+  # config before any `--network local` call — deploy-all.sh registers it too,
+  # but this script must stand on its own.
+  stellar network add "$NETWORK_NAME" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$NETWORK_PASSPHRASE" &>/dev/null || true
 
   local entries=()
   local funded=0
 
   for (( i = 0; i < ACCOUNTS; i++ )); do
+    local name="sim-$i"
     local secret public
-    if command -v stellar &>/dev/null; then
-      secret=$(stellar keys generate --no-fund "sim-$i" --network local >/dev/null 2>&1 \
-        && stellar keys show "sim-$i" 2>/dev/null || true)
+
+    if ! keys_generate "$name"; then
+      # An identity left over from an earlier run is fine; anything else is not.
+      if ! stellar keys address "$name" &>/dev/null; then
+        log_warn "  could not generate identity $name"
+        continue
+      fi
     fi
 
-    if [[ -z "${secret:-}" ]]; then
-      log_warn "  stellar CLI unavailable; skipping key generation for account $i"
+    public=$(stellar keys address "$name" 2>/dev/null || true)
+    secret=$(key_secret "$name")
+
+    if [[ -z "$public" || -z "$secret" ]]; then
+      log_warn "  could not read identity $name"
       continue
     fi
-
-    public=$(stellar keys address "sim-$i" 2>/dev/null || true)
-    [[ -z "$public" ]] && continue
 
     if curl -s --max-time 20 "http://localhost:${RPC_PORT}/friendbot?addr=${public}" >/dev/null; then
       entries+=("{\"index\":$i,\"public\":\"$public\",\"secret\":\"$secret\"}")

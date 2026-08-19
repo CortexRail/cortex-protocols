@@ -33,7 +33,14 @@ RPC_URL="${SOROBAN_RPC_URL:-http://localhost:${RPC_PORT}/soroban/rpc}"
 NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Standalone Network ; February 2017}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WASM_DIR="$CONTRACT_DIR/target/wasm32-unknown-unknown/release"
+# Soroban rejects WASM built with the reference-types proposal, which current
+# Rust emits by default for wasm32-unknown-unknown. wasm32v1-none is the target
+# that produces a loadable module, so prefer it whenever it is installed.
+WASM_TARGET="wasm32-unknown-unknown"
+if rustup target list --installed 2>/dev/null | grep -qx "wasm32v1-none"; then
+  WASM_TARGET="wasm32v1-none"
+fi
+WASM_DIR="$CONTRACT_DIR/target/${WASM_TARGET}/release"
 ADDRESSES_FILE="$CONTRACT_DIR/deployed-addresses.local.json"
 BACKEND_ENV="$CONTRACT_DIR/../backend/.env"
 FORCE_REDEPLOY="${FORCE_REDEPLOY:-false}"
@@ -79,6 +86,23 @@ preflight() {
 
 # ── Deployer identity ─────────────────────────────────────────────────────────
 
+# Generates an identity without funding it, across CLI versions.
+#   stellar  ~21: funds by default, so skipping it needs --no-fund
+#   stellar >= 22: does not fund by default and dropped --no-fund entirely
+keys_generate() {
+  local name="$1"
+  stellar keys generate --no-fund "$name" --network "$NETWORK" &>/dev/null && return 0
+  stellar keys generate "$name" --network "$NETWORK" &>/dev/null && return 0
+  stellar keys generate "$name" &>/dev/null
+}
+
+# Prints an identity's secret key, across CLI versions.
+#   stellar >= 22: `keys secret`
+#   stellar  ~21:  `keys show`
+key_secret() {
+  stellar keys secret "$1" 2>/dev/null || stellar keys show "$1" 2>/dev/null || true
+}
+
 ensure_deployer() {
   log_step "Preparing deployer identity"
 
@@ -88,14 +112,22 @@ ensure_deployer() {
   fi
 
   if ! stellar keys address cortex-deployer &>/dev/null; then
-    stellar keys generate --no-fund cortex-deployer --network "$NETWORK" >/dev/null
+    if ! keys_generate cortex-deployer; then
+      log_error "could not generate the 'cortex-deployer' identity"
+      exit 1
+    fi
     log_info "generated identity 'cortex-deployer'"
   fi
 
   local address
   address=$(stellar keys address cortex-deployer)
   curl -s --max-time 30 "http://localhost:${RPC_PORT}/friendbot?addr=${address}" >/dev/null || true
-  DEPLOYER_SECRET=$(stellar keys show cortex-deployer)
+  DEPLOYER_SECRET=$(key_secret cortex-deployer)
+
+  if [[ -z "$DEPLOYER_SECRET" ]]; then
+    log_error "could not read the deployer secret key"
+    exit 1
+  fi
 
   log_ok "deployer funded: $address"
 }
@@ -103,9 +135,9 @@ ensure_deployer() {
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 build_contracts() {
-  log_step "Building contracts (wasm32-unknown-unknown, release)"
+  log_step "Building contracts (${WASM_TARGET}, release)"
   cd "$CONTRACT_DIR"
-  cargo build --target wasm32-unknown-unknown --release --quiet
+  cargo build --target "$WASM_TARGET" --release --quiet
   log_ok "build complete"
 }
 
@@ -113,27 +145,33 @@ build_contracts() {
 
 deploy_with_retry() {
   local name="$1" wasm="$2"
-  local attempt=0 addr="" wait_secs=2
+  local attempt=0 output="" addr="" wait_secs=2
 
   while (( attempt < MAX_RETRIES )); do
     attempt=$(( attempt + 1 ))
     log_info "  attempt $attempt/$MAX_RETRIES deploying $name..." >&2
-    if addr=$(stellar contract deploy \
+    if output=$(stellar contract deploy \
           --wasm "$wasm" \
           --network "$NETWORK" \
           --source "$DEPLOYER_SECRET" 2>&1); then
-      addr=$(echo "$addr" | grep -E '^C[A-Z0-9]{55}$' | head -1)
+      addr=$(echo "$output" | grep -E '^C[A-Z0-9]{55}$' | head -1)
       if [[ -n "$addr" ]]; then
         echo "$addr"
         return 0
       fi
     fi
-    log_warn "  attempt $attempt failed, retrying in ${wait_secs}s..." >&2
-    sleep "$wait_secs"
-    wait_secs=$(( wait_secs * 2 ))
+    # Print what actually went wrong; retrying blind on a build-level problem
+    # just burns two minutes before failing with no explanation.
+    log_warn "  attempt $attempt failed: $(echo "$output" | grep -aiE '^.?.?error|HostError' | head -2 | tr '\n' ' ')" >&2
+    if (( attempt < MAX_RETRIES )); then
+      log_warn "  retrying in ${wait_secs}s..." >&2
+      sleep "$wait_secs"
+      wait_secs=$(( wait_secs * 2 ))
+    fi
   done
 
   log_error "all $MAX_RETRIES attempts failed for $name"
+  log_error "last output: $output"
   return 1
 }
 
