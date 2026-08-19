@@ -68,14 +68,19 @@ END $$;
 ALTER TABLE IF EXISTS events_log RENAME TO events_log_old;
 ALTER TABLE events_log_partitioned RENAME TO events_log;
 
--- 5 ── Re-create indexes on the new partitioned table ────────────────────────
+-- 5 ── Drop the old table ────────────────────────────────────────────────────
+-- This has to happen BEFORE the indexes below are created. Renaming a table
+-- does not rename its indexes, so events_log_old still owns the index names
+-- created in 006 and 008 (idx_events_log_ledger and friends) and re-creating
+-- them on the partitioned table would collide. The data was already backfilled
+-- in step 3, so the old table has nothing left to give.
+DROP TABLE IF EXISTS events_log_old;
+
+-- 6 ── Re-create indexes on the new partitioned table ────────────────────────
 -- Partition-key indexes are automatically created per-partition, but we still
 -- need the logical indexes on the parent so the planner can prune.
-CREATE INDEX idx_events_log_ledger ON events_log (ledger);
-CREATE INDEX idx_events_log_contract ON events_log (contract_id, ledger);
-CREATE INDEX idx_events_log_topic ON events_log USING GIN (topic);
-CREATE UNIQUE INDEX ux_events_log_unique_event
+CREATE INDEX IF NOT EXISTS idx_events_log_ledger ON events_log (ledger);
+CREATE INDEX IF NOT EXISTS idx_events_log_contract ON events_log (contract_id, ledger);
+CREATE INDEX IF NOT EXISTS idx_events_log_topic ON events_log USING GIN (topic);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_events_log_unique_event
     ON events_log (contract_id, ledger, COALESCE(tx_hash, ''), event_index);
-
--- 6 ── Drop the old table ────────────────────────────────────────────────────
-DROP TABLE IF EXISTS events_log_old;

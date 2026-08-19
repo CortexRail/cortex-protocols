@@ -42,8 +42,8 @@ describe("events_log partitioning", () => {
     `);
     const names = rows.map((r) => r.partition_name);
     expect(names.length).toBeGreaterThan(5);
-    expect(names).toContain("events_log_p0_to_100000");
-    expect(names).toContain("events_log_p100k_to_200k"  );
+    expect(names).toContain("events_log_p0_to_100k");
+    expect(names).toContain("events_log_p100k_to_200k");
     expect(names).toContain("events_log_default");
   });
 
@@ -51,12 +51,12 @@ describe("events_log partitioning", () => {
     await query(
       `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash, event_index)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [50000, "CCONTRACT1", '["LISTED"]', '{"price":100}', "tx1", 0]
+      [50000, "CCONTRACT1", ["LISTED"], '{"price":100}', "tx1", 0]
     );
     await query(
       `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash, event_index)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [150000, "CCONTRACT2", '["SOLD"]', '{"price":200}', "tx2", 0]
+      [150000, "CCONTRACT2", ["SOLD"], '{"price":200}', "tx2", 0]
     );
 
     const { rows } = await query(
@@ -71,7 +71,7 @@ describe("events_log partitioning", () => {
     await query(
       `INSERT INTO events_log (ledger, contract_id, topic, payload, tx_hash, event_index)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [50000, "CCONTRACT1", '["LISTED"]', '{}', "tx1", 0]
+      [50000, "CCONTRACT1", ["LISTED"], '{}', "tx1", 0]
     );
 
     // Verify the row ended up in the p0_to_100k partition.

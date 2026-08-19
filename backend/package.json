@@ -1,7 +1,7 @@
 {
   "name": "cortex-protocol-backend",
   "version": "0.1.0",
-  "description": "Intelligence Rail backend API — agent discovery, asset indexing, and Stellar integration",
+  "description": "Intelligence Rail backend API \u2014 agent discovery, asset indexing, and Stellar integration",
   "main": "src/index.js",
   "bin": {
     "cortex-admin": "src/cli/cortex-admin.js"
@@ -10,6 +10,8 @@
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "admin": "node src/cli/cortex-admin.js",
+    "simulate": "node src/simulation/run-simulation.js",
+    "simulate:smoke": "node src/simulation/run-simulation.js --smoke --mock",
     "lint": "eslint src/",
     "test": "jest --forceExit"
   },

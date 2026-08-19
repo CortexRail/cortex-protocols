@@ -1,0 +1,183 @@
+name: Nightly Simulation
+
+on:
+  schedule:
+    # 03:00 UTC daily — after the day's merges, before the working day.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: "Number of synthetic agents"
+        required: false
+        default: "50"
+      duration:
+        description: "Swarm duration in seconds"
+        required: false
+        default: "600"
+      chaos:
+        description: "Inject faults mid-run"
+        type: boolean
+        required: false
+        default: true
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "contract/**"
+      - ".github/workflows/nightly-simulation.yml"
+
+concurrency:
+  group: simulation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Cheap PR gate ──────────────────────────────────────────────────────────
+  # A 5-agent, 2-minute swarm against the in-memory transport. No network, no
+  # contracts, no database — it exists to catch an obvious regression in the
+  # discover → quote → stream → meter → settle loop for the price of a few
+  # seconds of CI time.
+  smoke:
+    name: Smoke swarm (5 agents)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Run smoke swarm
+        run: npm run simulate -- --smoke --mock --duration 120 --output ../simulation-smoke-report.html
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulation-smoke-report
+          path: simulation-smoke-report.html
+          if-no-files-found: warn
+
+  # ── Full nightly run ───────────────────────────────────────────────────────
+  # Boots a real local Soroban network, deploys every contract, and runs a
+  # bounded swarm against the real backend and SDK. Fails the build when the
+  # error rate exceeds the threshold or the final-state reconciliation fails.
+  nightly:
+    name: Nightly swarm against a local network
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      AGENTS: ${{ github.event.inputs.agents || '50' }}
+      DURATION: ${{ github.event.inputs.duration || '600' }}
+      MAX_ERROR_RATE: "0.05"
+      LOCAL_RPC_PORT: "8000"
+      SOROBAN_RPC_URL: http://localhost:8000/soroban/rpc
+      HORIZON_URL: http://localhost:8000
+      NETWORK_PASSPHRASE: "Standalone Network ; February 2017"
+      SIMULATION_BACKEND_URL: http://localhost:4000
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cortex
+          POSTGRES_PASSWORD: cortex
+          POSTGRES_DB: cortex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract/target
+          key: ${{ runner.os }}-sim-cargo-${{ hashFiles('contract/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-sim-cargo-
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --version 21.5.0 || cargo install --locked soroban-cli
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Start local Soroban network
+        run: bash contract/scripts/start-local-network.sh --accounts "${AGENTS}"
+
+      - name: Deploy all contracts
+        run: bash contract/scripts/deploy-all.sh --network local
+
+      - name: Start the backend
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://cortex:cortex@localhost:5432/cortex
+          PORT: "4000"
+        run: |
+          node src/db/migrate.js
+          nohup node src/index.js > ../backend.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:4000/api/v1/health >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:4000/api/v1/health || { cat ../backend.log; exit 1; }
+
+      - name: Run the swarm
+        working-directory: backend
+        run: |
+          npm run simulate -- \
+            --agents "${AGENTS}" \
+            --duration "${DURATION}" \
+            --max-error-rate "${MAX_ERROR_RATE}" \
+            --skip-network \
+            --skip-deploy \
+            ${{ (github.event.inputs.chaos == 'false' && ' ') || '--chaos' }} \
+            --output ../simulation-report.html
+
+      - name: Upload simulation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulation-report-${{ github.run_number }}
+          path: simulation-report.html
+          if-no-files-found: warn
+
+      - name: Upload backend log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log-${{ github.run_number }}
+          path: backend.log
+          if-no-files-found: ignore
+
+      - name: Tear down the local network
+        if: always()
+        run: bash contract/scripts/start-local-network.sh --stop

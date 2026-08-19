@@ -32,6 +32,30 @@ function partitionName(start) {
 }
 
 /**
+ * Parse one bound out of a partition name suffix.
+ *
+ * Partition names come from two places and use two spellings: this script emits
+ * plain numbers (`100000`), while the initial set created by migration 013 uses
+ * shorthand (`100k`, `1m`, `1_1m` for 1.1 million). Reading only the first
+ * spelling is why the bound used to come back as 0 and the script kept trying
+ * to re-create a partition that already existed.
+ *
+ * @param {string} token
+ * @returns {number} The bound, or `NaN` when the token is not a bound.
+ */
+function parseBound(token) {
+  if (/^\d+$/.test(token)) return Number(token);
+
+  const shorthand = /^(\d+)(?:_(\d+))?([km])$/.exec(token);
+  if (!shorthand) return NaN;
+
+  const [, whole, fraction, unit] = shorthand;
+  const scale = unit === "k" ? 1_000 : 1_000_000;
+  const value = fraction ? Number(`${whole}.${fraction}`) : Number(whole);
+  return Math.round(value * scale);
+}
+
+/**
  * Discover the highest existing partition upper bound.
  */
 async function getMaxPartitionBound() {
@@ -44,10 +68,10 @@ async function getMaxPartitionBound() {
 
   let maxBound = 0;
   for (const { suffix } of rows) {
-    // suffix looks like "0_to_100000" or "100000_to_200000"
+    // suffix looks like "0_to_100000", "100000_to_200000", or "1_1m_to_1_2m"
     const parts = suffix.split("_to_");
     if (parts.length === 2) {
-      const upper = Number(parts[1]);
+      const upper = parseBound(parts[1]);
       if (!Number.isNaN(upper) && upper > maxBound) maxBound = upper;
     }
   }
@@ -114,4 +138,4 @@ if (require.main === module) {
     .finally(() => closePool());
 }
 
-module.exports = { createPartitions, getMaxPartitionBound, partitionName };
+module.exports = { createPartitions, getMaxPartitionBound, partitionName, parseBound };
