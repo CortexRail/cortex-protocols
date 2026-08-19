@@ -6,7 +6,9 @@
 //! continuously (per-second or per-call billing), with deposit/withdrawal and
 //! automatic settlement.
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol, Vec,
+};
 
 const STREAMS: Symbol = symbol_short!("STREAMS");
 const STREAM_CNT: Symbol = symbol_short!("S_CNT");
@@ -328,8 +330,10 @@ impl MicropaymentsContract {
                     streams.set(id, stream.clone());
                     settled_amounts.set(id, amount);
 
-                    env.events()
-                        .publish((symbol_short!("WITHDRAWN"), recipient.clone()), (id, amount));
+                    env.events().publish(
+                        (symbol_short!("WITHDRAWN"), recipient.clone()),
+                        (id, amount),
+                    );
                 } else {
                     settled_amounts.set(id, 0);
                 }
@@ -410,4 +414,3 @@ impl MicropaymentsContract {
 
 #[cfg(test)]
 mod test;
-
