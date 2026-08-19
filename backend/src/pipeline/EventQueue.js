@@ -3,6 +3,7 @@
  */
 
 const pipelineMetrics = require("./pipelineMetrics");
+const { logger } = require("../utils/logger");
 
 const DEFAULT_MAX_RETRIES = 3;
 
@@ -23,7 +24,7 @@ class EventQueue {
     this.queue.push({ event, attempts: 0 });
     pipelineMetrics.setQueueDepth(this.queue.length);
     this.drain().catch((err) => {
-      console.error("[EventQueue] drain error:", err.message);
+      logger.error("[EventQueue] drain error:", err.message);
     });
   }
 

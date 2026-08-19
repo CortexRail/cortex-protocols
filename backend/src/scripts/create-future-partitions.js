@@ -16,6 +16,7 @@
 require("dotenv").config();
 
 const { query, closePool } = require("../db/connection");
+const { logger } = require("../utils/logger");
 
 const RANGE_SIZE = Number(process.env.PARTITION_RANGE_SIZE) || 100_000;
 const PARTITIONS_AHEAD = Number(process.env.PARTITIONS_AHEAD) || 5;
@@ -77,7 +78,7 @@ async function createPartitions() {
       console.info(`[create-future-partitions] created ${name}`);
       created++;
     } catch (err) {
-      console.error(`[create-future-partitions] failed to create ${name}: ${err.message}`);
+      logger.error(`[create-future-partitions] failed to create ${name}: ${err.message}`);
       break;
     }
 
@@ -108,7 +109,7 @@ if (require.main === module) {
       );
     })
     .catch((err) => {
-      console.error("[create-future-partitions] failed:", err.message);
+      logger.error("[create-future-partitions] failed:", err.message);
       process.exitCode = 1;
     })
     .finally(() => closePool());

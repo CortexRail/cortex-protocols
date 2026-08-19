@@ -10,6 +10,7 @@ const agentStakeRepository = require("../repositories/agentStakeRepository");
 const agentRepository = require("../repositories/agentRepository");
 const reputationEngine = require("./reputationEngine");
 const StreamMonitor = require("../protocol/StreamMonitor");
+const { logger } = require("../utils/logger");
 
 /** Verdicts as stored off-chain, keyed by the contract's enum name. */
 const OUTCOMES = Object.freeze({
@@ -234,7 +235,7 @@ function notify(event, payload) {
     StreamMonitor.broadcast(event, payload);
   } catch (err) {
     if (process.env.NODE_ENV !== "test") {
-      console.warn(`[disputeService] notification failed: ${err.message}`);
+      logger.warn(`[disputeService] notification failed: ${err.message}`);
     }
   }
 }

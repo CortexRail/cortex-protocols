@@ -3,6 +3,7 @@
  */
 
 const { rpcServer, CONTRACT_IDS } = require("../config/stellar");
+const { logger } = require("../utils/logger");
 
 const MAX_FAILURES = 10;
 const COOLDOWN_MS = 60_000;
@@ -130,7 +131,7 @@ class EventPoller {
         }
       } catch (err) {
         if (process.env.NODE_ENV !== "test") {
-          console.warn("[EventPoller] fetch error:", err.message);
+          logger.warn("[EventPoller] fetch error:", err.message);
         }
       } finally {
         this.running = false;

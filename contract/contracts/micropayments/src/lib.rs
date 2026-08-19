@@ -29,7 +29,7 @@ pub enum StreamStatus {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SettlementStatus {
     pub last_settled_amount: i128,
-    pub ledger_sequence: u64,
+    pub ledger_sequence: u32,
 }
 
 /// Settlement errors
@@ -309,7 +309,6 @@ impl MicropaymentsContract {
 
         let mut settled_amounts: Map<u64, i128> = Map::new(&env);
         let now = env.ledger().timestamp();
-        let ledger_seq = env.ledger().sequence();
 
         for id in stream_ids.iter() {
             if let Some(mut stream) = streams.get(id) {

@@ -8,6 +8,7 @@ const { withTransaction } = require("../db/connection");
 const settlementRepository = require("../repositories/settlementRepository");
 const SettlementLedger = require("../protocol/SettlementLedger");
 const streamRepository = require("../repositories/streamRepository");
+const { logger } = require("../utils/logger");
 
 describe("Settlement Load Tests", () => {
   const NUM_CONCURRENT_SETTLEMENTS = 500;
@@ -99,7 +100,7 @@ describe("Settlement Load Tests", () => {
     const settlements = await Promise.all(settlementPromises);
     const duration = Date.now() - startTime;
 
-    console.log(`Created ${settlements.length} settlements in ${duration}ms`);
+    logger.info(`Created ${settlements.length} settlements in ${duration}ms`);
 
     // Verify all settlements were created successfully
     expect(settlements.length).toBe(NUM_CONCURRENT_SETTLEMENTS);
@@ -153,7 +154,7 @@ describe("Settlement Load Tests", () => {
       expect(count).toBe(1); // Each nonce should appear exactly once
     });
 
-    console.log("Load test passed: 500 concurrent settlements with exactly-once semantics");
+    logger.info("Load test passed: 500 concurrent settlements with exactly-once semantics");
   });
 
   test("Concurrent settlements with same nonce are idempotent", async () => {
@@ -219,7 +220,7 @@ describe("Settlement Load Tests", () => {
     const results = await Promise.all(operations);
     const duration = Date.now() - startTime;
 
-    console.log(`Executed ${numOperations} concurrent operations in ${duration}ms`);
+    logger.info(`Executed ${numOperations} concurrent operations in ${duration}ms`);
     expect(results.length).toBe(numOperations);
     expect(duration).toBeLessThan(5000); // Should complete in under 5 seconds
   });

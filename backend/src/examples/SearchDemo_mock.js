@@ -6,6 +6,7 @@
  */
 
 const { advancedSearch } = require("../utils/advancedSearch");
+const { logger } = require("../utils/logger");
 
 // Sample dataset mimicking real assets
 const sampleAssets = [
@@ -134,17 +135,17 @@ const sampleAssets = [
  * Print search results in a formatted table
  */
 function printResults(query, results, maxResults = 10) {
-  console.log("\n" + "=".repeat(100));
-  console.log(`SEARCH QUERY: "${query}"`);
-  console.log("=".repeat(100));
-  console.log();
+  logger.info("\n" + "=".repeat(100));
+  logger.info(`SEARCH QUERY: "${query}"`);
+  logger.info("=".repeat(100));
+  logger.info();
 
   if (results.length === 0) {
-    console.log("No results found.");
+    logger.info("No results found.");
     return;
   }
 
-  console.log(`Found ${results.length} result(s):\n`);
+  logger.info(`Found ${results.length} result(s):\n`);
 
   results.slice(0, maxResults).forEach((asset, index) => {
     const scoreBar =
@@ -152,14 +153,14 @@ function printResults(query, results, maxResults = 10) {
       "░".repeat(20 - Math.round(asset.score / 5));
     const priceDisplay = asset.price === 0 ? "FREE" : `$${asset.price}`;
 
-    console.log(`${index + 1}. [Score: ${asset.score.toFixed(2)} ${scoreBar}]`);
-    console.log(`   ${asset.name}`);
-    console.log(
+    logger.info(`${index + 1}. [Score: ${asset.score.toFixed(2)} ${scoreBar}]`);
+    logger.info(`   ${asset.name}`);
+    logger.info(
       `   Type: ${asset.assetType} | License: ${asset.licenseType} | Price: ${priceDisplay}`,
     );
-    console.log(`   Tags: ${asset.tags.join(", ")}`);
-    console.log(`   ${asset.description.substring(0, 80)}...`);
-    console.log();
+    logger.info(`   Tags: ${asset.tags.join(", ")}`);
+    logger.info(`   ${asset.description.substring(0, 80)}...`);
+    logger.info();
   });
 }
 
@@ -167,66 +168,66 @@ function printResults(query, results, maxResults = 10) {
  * Run demo searches with various query types
  */
 function runDemo() {
-  console.log("\n");
-  console.log(
+  logger.info("\n");
+  logger.info(
     "╔════════════════════════════════════════════════════════════════════════════════╗",
   );
-  console.log(
+  logger.info(
     "║                   ADVANCED SEARCH DEMONSTRATION                                ║",
   );
-  console.log(
+  logger.info(
     "║                                                                                ║",
   );
-  console.log(
+  logger.info(
     "║  Features:                                                                     ║",
   );
-  console.log(
+  logger.info(
     "║  ✓ TF-IDF Scoring across name, description, and tags                          ║",
   );
-  console.log(
+  logger.info(
     "║  ✓ 3x Boost for exact name matches                                            ║",
   );
-  console.log(
+  logger.info(
     "║  ✓ Fuzzy matching with Levenshtein distance ≤ 2                               ║",
   );
-  console.log(
+  logger.info(
     "║  ✓ Configurable field weights (name: 3, tags: 2, description: 1)              ║",
   );
-  console.log(
+  logger.info(
     "╚════════════════════════════════════════════════════════════════════════════════╝",
   );
 
   // Demo 1: Basic multi-word search
-  console.log("\n\n📌 DEMO 1: Multi-word search");
-  console.log("Shows how TF-IDF scoring ranks relevant results");
+  logger.info("\n\n📌 DEMO 1: Multi-word search");
+  logger.info("Shows how TF-IDF scoring ranks relevant results");
   const results1 = advancedSearch(sampleAssets, "machine learning dataset");
   printResults("machine learning dataset", results1, 5);
 
   // Demo 2: Exact match boost
-  console.log("\n\n📌 DEMO 2: Exact match boost (3x multiplier)");
-  console.log(
+  logger.info("\n\n📌 DEMO 2: Exact match boost (3x multiplier)");
+  logger.info(
     'Notice how "Dataset" with exact name match gets top score despite less descriptive content',
   );
   const results2 = advancedSearch(sampleAssets, "dataset");
   printResults("dataset", results2, 5);
 
   // Demo 3: Fuzzy matching with typo
-  console.log("\n\n📌 DEMO 3: Fuzzy matching (typo tolerance)");
-  console.log(
+  logger.info("\n\n📌 DEMO 3: Fuzzy matching (typo tolerance)");
+  logger.info(
     'Query has typo: "transformr" → should still match "transformer"',
   );
   const results3 = advancedSearch(sampleAssets, "transformr neural network");
   printResults("transformr neural network", results3, 5);
 
   // Demo 4: Tag-based search
-  console.log("\n\n📌 DEMO 4: Tag-based search");
-  console.log("Tags have 2x weight, so tag matches score higher");
+  logger.info("\n\n📌 DEMO 4: Tag-based search");
+  logger.info("Tags have 2x weight, so tag matches score higher");
   const results4 = advancedSearch(sampleAssets, "nlp");
   printResults("nlp", results4, 5);
 
   // Demo 5: Complex query
-  console.log("\n\n📌 DEMO 5: Complex query with multiple terms");
-  console.log("Shows how multiple terms combine in scoring");
+  logger.info("\n\n📌 DEMO 5: Complex query with multiple terms");
+  logger.info("Shows how multiple terms combine in scoring");
   const results5 = advancedSearch(
     sampleAssets,
     "neural network training optimization",
@@ -234,43 +235,43 @@ function runDemo() {
   printResults("neural network training optimization", results5, 5);
 
   // Demo 6: Low relevance filter
-  console.log("\n\n📌 DEMO 6: Filtering low-relevance results");
-  console.log("Using minScore: 10 to filter out weak matches");
+  logger.info("\n\n📌 DEMO 6: Filtering low-relevance results");
+  logger.info("Using minScore: 10 to filter out weak matches");
   const results6 = advancedSearch(sampleAssets, "workflow", { minScore: 10 });
   printResults("workflow (minScore: 10)", results6, 5);
 
   // Demo 7: Custom field weights
-  console.log("\n\n📌 DEMO 7: Custom field weights");
-  console.log("Boosting description weight to prioritize detailed content");
+  logger.info("\n\n📌 DEMO 7: Custom field weights");
+  logger.info("Boosting description weight to prioritize detailed content");
   const results7 = advancedSearch(sampleAssets, "training", {
     weights: { name: 2, description: 3, tags: 1 },
   });
   printResults("training (custom weights)", results7, 5);
 
   // Demo 8: Another typo example
-  console.log("\n\n📌 DEMO 8: More fuzzy matching examples");
-  console.log('Query: "datset proccessing" (multiple typos)');
+  logger.info("\n\n📌 DEMO 8: More fuzzy matching examples");
+  logger.info('Query: "datset proccessing" (multiple typos)');
   const results8 = advancedSearch(sampleAssets, "datset proccessing");
   printResults("datset proccessing", results8, 5);
 
   // Summary
-  console.log("\n" + "=".repeat(100));
-  console.log("DEMO COMPLETE");
-  console.log("=".repeat(100));
-  console.log("\nKey Observations:");
-  console.log("• Exact matches receive significant boost (3x)");
-  console.log("• Fuzzy matching handles common typos (≤2 character edits)");
-  console.log("• TF-IDF scoring provides relevance-based ranking");
-  console.log(
+  logger.info("\n" + "=".repeat(100));
+  logger.info("DEMO COMPLETE");
+  logger.info("=".repeat(100));
+  logger.info("\nKey Observations:");
+  logger.info("• Exact matches receive significant boost (3x)");
+  logger.info("• Fuzzy matching handles common typos (≤2 character edits)");
+  logger.info("• TF-IDF scoring provides relevance-based ranking");
+  logger.info(
     "• Field weights allow customization (name > tags > description)",
   );
-  console.log(
+  logger.info(
     "• Score field (0-100) enables client-side sorting and filtering",
   );
-  console.log();
-  console.log("Run benchmarks with: node src/scripts/benchmarkSearch.js 10000");
-  console.log("See documentation: docs/ADVANCED_SEARCH.md");
-  console.log();
+  logger.info();
+  logger.info("Run benchmarks with: node src/scripts/benchmarkSearch.js 10000");
+  logger.info("See documentation: docs/ADVANCED_SEARCH.md");
+  logger.info();
 }
 
 // Run demo if executed directly

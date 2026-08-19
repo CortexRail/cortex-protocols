@@ -1,3 +1,4 @@
+const { logger } = require("../utils/logger");
 /**
  * 404 handler — catches routes that don't match any registered handler.
  */
@@ -16,7 +17,7 @@ function errorHandler(err, _req, res, _next) {
   const message = err.message || "Internal Server Error";
 
   if (process.env.NODE_ENV !== "production") {
-    console.error(err);
+    logger.error(err);
   }
 
   res.status(status).json({

@@ -18,6 +18,7 @@
 require("dotenv").config();
 
 const { query, closePool } = require("../db/connection");
+const { logger } = require("../utils/logger");
 
 const RETENTION_DAYS = Number(process.env.PARTITION_RETENTION_DAYS) || 90;
 
@@ -87,7 +88,7 @@ async function prunePartitions() {
         console.info(`[prune-old-partitions] dropped ${part.name} (ends at ledger ${part.end})`);
         dropped++;
       } catch (err) {
-        console.error(`[prune-old-partitions] failed to drop ${part.name}: ${err.message}`);
+        logger.error(`[prune-old-partitions] failed to drop ${part.name}: ${err.message}`);
       }
     } else {
       // Partition straddles the cutoff — check if any rows are still within retention.
@@ -118,7 +119,7 @@ if (require.main === module) {
       );
     })
     .catch((err) => {
-      console.error("[prune-old-partitions] failed:", err.message);
+      logger.error("[prune-old-partitions] failed:", err.message);
       process.exitCode = 1;
     })
     .finally(() => closePool());
