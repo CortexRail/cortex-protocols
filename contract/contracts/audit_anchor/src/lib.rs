@@ -225,12 +225,12 @@ impl AuditAnchorContract {
 mod test {
     extern crate std;
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Bytes, BytesN, Env};
+    use soroban_sdk::{testutils::Address as _, BytesN, Env};
 
     fn fresh() -> (Env, Address, AuditAnchorContractClient<'static>) {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register_contract(None, AuditAnchorContract);
+        let contract_id = env.register(AuditAnchorContract, ());
         let client = AuditAnchorContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
