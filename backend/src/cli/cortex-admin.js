@@ -35,7 +35,7 @@ const program = new Command();
 program.name("cortex-admin").description("Cortex Protocol operator CLI").version("0.1.0");
 
 function printResult(result) {
-  console.log(JSON.stringify(result, null, 2));
+  logger.info(JSON.stringify(result, null, 2));
 }
 
 /**
@@ -50,7 +50,7 @@ function action(fn) {
       const result = await fn(...args);
       printResult(result);
     } catch (err) {
-      console.error(`cortex-admin: ${err.message}`);
+      logger.error(`cortex-admin: ${err.message}`);
       process.exitCode = 1;
     } finally {
       await closePool();
@@ -112,10 +112,11 @@ program
     // The TUI owns the process until the operator quits — no closePool()
     // here, dashboard.js's own key handler exits the process.
     const dashboard = require("./tui/dashboard");
+const { logger } = require("../utils/logger");
     try {
       dashboard.start({ refreshIntervalMs: Number(opts.refreshMs) });
     } catch (err) {
-      console.error(`cortex-admin: ${err.message}`);
+      logger.error(`cortex-admin: ${err.message}`);
       process.exitCode = 1;
     }
   });

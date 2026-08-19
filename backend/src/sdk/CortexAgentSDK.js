@@ -8,6 +8,7 @@ const {
   scValToNative,
 } = require("@stellar/stellar-sdk");
 const SorobanRpc = rpc || require("@stellar/stellar-sdk").SorobanRpc;
+const { logger } = require("../utils/logger");
 
 class CortexAgentSDK {
   /**
@@ -140,7 +141,7 @@ class CortexAgentSDK {
         durationSecs
       );
     } catch (err) {
-      console.warn("[CortexAgentSDK] On-chain stream opening failed, falling back to mock registration:", err.message);
+      logger.warn("[CortexAgentSDK] On-chain stream opening failed, falling back to mock registration:", err.message);
       // Fallback: Generate a random stream ID in mock/offline mode
       streamId = Math.floor(Math.random() * 1_000_000) + 1;
     }

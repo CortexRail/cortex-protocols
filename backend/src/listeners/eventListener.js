@@ -56,7 +56,7 @@ async function pollEvents() {
     pollErrorCount += 1;
     // Log but don't crash — network may be temporarily unavailable
     if (process.env.NODE_ENV !== "test") {
-      console.warn("[eventListener] poll error:", err.message);
+      logger.warn("[eventListener] poll error:", err.message);
     }
   }
 }
@@ -96,14 +96,14 @@ async function processEvent(event) {
     case "UPDATED": {
       const update = parseUpdatedEvent(event.value);
       if (!update) {
-        console.warn("[eventListener] malformed UPDATED event; skipping");
+        logger.warn("[eventListener] malformed UPDATED event; skipping");
         break;
       }
 
       const { assetId, oldVersion, newVersion } = update;
       const asset = await updateAssetVersion(assetId, newVersion);
       if (!asset) {
-        console.warn(
+        logger.warn(
           `[eventListener] asset update skipped; not indexed: id=${assetId}, oldVersion=${oldVersion}, newVersion=${newVersion}`
         );
         break;
@@ -115,6 +115,7 @@ async function processEvent(event) {
     }
 const { setEscrowStatus } = require("../services/escrowService");
 const { syncDisputeResolution } = require("../services/disputeService");
+const { logger } = require("../utils/logger");
 
     case "REGISTERED": {
       console.info(`[eventListener] agent registered: id=${event.value}`);

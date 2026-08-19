@@ -53,7 +53,7 @@ async function applyMigrations(pool) {
         await client.query("ROLLBACK");
         // Ignore errors from migrations that already altered structures.
         if (!err.message.includes("already exists") && !err.message.includes("does not exist")) {
-          console.warn(`[test] migration ${file} warning:`, err.message);
+          logger.warn(`[test] migration ${file} warning:`, err.message);
         }
       }
     }
@@ -344,6 +344,7 @@ describe("Audit chain", () => {
   test("Merkle proof fails for a tampered entry hash", async () => {
     const { AuditLogWriter, EVENT_TYPES } = require("../AuditLogWriter");
     const { MerkleAnchor, verifyMerkleProof } = require("../MerkleAnchor");
+const { logger } = require("../../utils/logger");
     const writer = AuditLogWriter.getInstance();
 
     for (let i = 1; i <= 4; i++) {

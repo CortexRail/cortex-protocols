@@ -174,7 +174,7 @@ class MerkleAnchor {
     if (this._timer) return;
     this._running = true;
     this._schedule();
-    console.log(`[MerkleAnchor] started (interval=${ANCHOR_INTERVAL_ENTRIES} entries / ${ANCHOR_INTERVAL_MS}ms)`);
+    logger.info(`[MerkleAnchor] started (interval=${ANCHOR_INTERVAL_ENTRIES} entries / ${ANCHOR_INTERVAL_MS}ms)`);
   }
 
   /**
@@ -186,7 +186,7 @@ class MerkleAnchor {
       clearTimeout(this._timer);
       this._timer = null;
     }
-    console.log("[MerkleAnchor] stopped");
+    logger.info("[MerkleAnchor] stopped");
   }
 
   _schedule() {
@@ -195,7 +195,7 @@ class MerkleAnchor {
       try {
         await this._maybeAnchor();
       } catch (err) {
-        console.error("[MerkleAnchor] error during scheduled anchor check:", err.message);
+        logger.error("[MerkleAnchor] error during scheduled anchor check:", err.message);
       } finally {
         this._schedule();
       }
@@ -239,7 +239,7 @@ class MerkleAnchor {
       throw new Error(`anchorNow: fromSeq (${fromSeq}) > toSeq (${toSeq})`);
     }
 
-    console.log(`[MerkleAnchor] anchoring entries ${fromSeq}–${toSeq}`);
+    logger.info(`[MerkleAnchor] anchoring entries ${fromSeq}–${toSeq}`);
 
     // Fetch entry_hashes in order.
     const { rows } = await query(
@@ -285,6 +285,7 @@ class MerkleAnchor {
           xdr.Uint64.fromString(entryCount.toString())
         );
         const adminScVal = require("@stellar/stellar-sdk").Address.fromString(
+const { logger } = require("../utils/logger");
           serverKeypair.publicKey()
         ).toScVal();
 
@@ -302,15 +303,15 @@ class MerkleAnchor {
         txHash = result?._txHash || null; // stellarService may surface this
         onChainStatus = "confirmed";
 
-        console.log(`[MerkleAnchor] anchored on-chain: root=${merkleRoot} index=${anchorIndex}`);
+        logger.info(`[MerkleAnchor] anchored on-chain: root=${merkleRoot} index=${anchorIndex}`);
       } catch (err) {
-        console.error("[MerkleAnchor] on-chain submission failed:", err.message);
+        logger.error("[MerkleAnchor] on-chain submission failed:", err.message);
         errorMessage = err.message;
         onChainStatus = "failed";
       }
     } else {
       // No contract configured — record anchor as pending for later submission.
-      console.warn("[MerkleAnchor] AUDIT_ANCHOR_CONTRACT_ID not set; anchor stored locally only");
+      logger.warn("[MerkleAnchor] AUDIT_ANCHOR_CONTRACT_ID not set; anchor stored locally only");
     }
 
     // Update the merkle_anchors record with the on-chain result.

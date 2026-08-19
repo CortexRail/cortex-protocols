@@ -12,6 +12,7 @@
  */
 
 const { Pool, types } = require("pg");
+const { logger } = require("../utils/logger");
 
 // BIGINT (int8) comes back from pg as a string by default. Our on-chain IDs,
 // prices, and counters all fit comfortably inside Number.MAX_SAFE_INTEGER
@@ -72,7 +73,7 @@ function getWritePool() {
   if (!writePool) {
     writePool = new Pool(buildPoolConfig());
     writePool.on("error", (err) => {
-      console.error("[db] write-pool idle client error:", err.message);
+      logger.error("[db] write-pool idle client error:", err.message);
     });
   }
   return writePool;
@@ -88,7 +89,7 @@ function getReadPool() {
     if (replicaUrl) {
       readPool = new Pool(buildPoolConfig(replicaUrl));
       readPool.on("error", (err) => {
-        console.error("[db] read-pool idle client error:", err.message);
+        logger.error("[db] read-pool idle client error:", err.message);
       });
     }
   }
@@ -158,7 +159,7 @@ async function withTransaction(fn) {
     try {
       await client.query("ROLLBACK");
     } catch (rollbackErr) {
-      console.error("[db] rollback failed:", rollbackErr.message);
+      logger.error("[db] rollback failed:", rollbackErr.message);
     }
     throw err;
   } finally {

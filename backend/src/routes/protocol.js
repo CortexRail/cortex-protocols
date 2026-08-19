@@ -13,6 +13,7 @@ const { viewContract, invokeContract } = require("../services/stellarService");
 const streamRepository = require("../repositories/streamRepository");
 const assetRepository = require("../repositories/assetRepository");
 const { Keypair } = require("@stellar/stellar-sdk");
+const { logger } = require("../utils/logger");
 
 const router = Router();
 
@@ -153,7 +154,7 @@ router.post(
           };
         }
       } catch (err) {
-        console.warn("[ProtocolRoute] failed to fetch stream from chain:", err.message);
+        logger.warn("[ProtocolRoute] failed to fetch stream from chain:", err.message);
       }
     }
 
@@ -252,7 +253,7 @@ router.get(
         );
         claimable = raw;
       } catch (err) {
-        console.warn("[ProtocolRoute] failed to fetch claimable on-chain:", err.message);
+        logger.warn("[ProtocolRoute] failed to fetch claimable on-chain:", err.message);
       }
     }
 
@@ -304,7 +305,7 @@ router.post(
         );
         if (result) settledAmount = Number(result);
       } catch (err) {
-        console.warn("[ProtocolRoute] on-chain withdraw failed:", err.message);
+        logger.warn("[ProtocolRoute] on-chain withdraw failed:", err.message);
       }
     }
 

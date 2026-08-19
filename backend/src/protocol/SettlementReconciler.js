@@ -39,13 +39,14 @@ const DivergenceType = {
 async function getOnChainSettlementStatus(streamIds) {
   const contractId = CONTRACT_IDS.micropayments;
   if (!contractId) {
-    console.warn('[SettlementReconciler] micropayments contract not configured');
+    logger.warn('[SettlementReconciler] micropayments contract not configured');
     return new Map();
   }
 
   try {
     // Use a dummy caller key for view-only calls
     const { Keypair } = require("@stellar/stellar-sdk");
+const { logger } = require("../utils/logger");
     const dummyKeypair = Keypair.random();
     
     const result = await viewContract(
@@ -68,7 +69,7 @@ async function getOnChainSettlementStatus(streamIds) {
 
     return statusMap;
   } catch (err) {
-    console.error('[SettlementReconciler] Failed to fetch on-chain status:', err.message);
+    logger.error('[SettlementReconciler] Failed to fetch on-chain status:', err.message);
     return new Map();
   }
 }
@@ -156,13 +157,13 @@ async function healDivergences(divergences) {
             healed++;
           }
         } catch (err) {
-          console.error(`[SettlementReconciler] Failed to heal stream ${divergence.streamId}:`, err.message);
+          logger.error(`[SettlementReconciler] Failed to heal stream ${divergence.streamId}:`, err.message);
         }
       } else if (divergence.type === DivergenceType.OFF_CHAIN_AHEAD) {
         // Log high-severity divergence for manual review
-        console.error(`[SettlementReconciler] HIGH SEVERITY: Stream ${divergence.streamId} off-chain ahead by ${divergence.difference} - manual review required`);
+        logger.error(`[SettlementReconciler] HIGH SEVERITY: Stream ${divergence.streamId} off-chain ahead by ${divergence.difference} - manual review required`);
       } else if (divergence.type === DivergenceType.MISSING_ON_CHAIN) {
-        console.warn(`[SettlementReconciler] Stream ${divergence.streamId} missing on-chain - possible orphan`);
+        logger.warn(`[SettlementReconciler] Stream ${divergence.streamId} missing on-chain - possible orphan`);
       }
     }
   });
@@ -199,7 +200,7 @@ async function runReconciliation() {
     const divergences = await detectDivergences(streams.data, onChainStatus);
 
     if (divergences.length > 0) {
-      console.warn(`[SettlementReconciler] Detected ${divergences.length} divergences`);
+      logger.warn(`[SettlementReconciler] Detected ${divergences.length} divergences`);
       
       // Auto-heal where possible
       const healable = divergences.filter(d => d.type === DivergenceType.ON_CHAIN_AHEAD);
@@ -208,7 +209,7 @@ async function runReconciliation() {
       // Log unhealed divergences
       const unhealed = divergences.filter(d => d.type !== DivergenceType.ON_CHAIN_AHEAD);
       if (unhealed.length > 0) {
-        console.error(`[SettlementReconciler] ${unhealed.length} divergences require manual review:`, 
+        logger.error(`[SettlementReconciler] ${unhealed.length} divergences require manual review:`, 
           unhealed.map(d => `${d.type} for stream ${d.streamId}`).join(', '));
       }
 
@@ -229,7 +230,7 @@ async function runReconciliation() {
       durationMs: Date.now() - startTime,
     };
   } catch (err) {
-    console.error('[SettlementReconciler] Reconciliation cycle failed:', err);
+    logger.error('[SettlementReconciler] Reconciliation cycle failed:', err);
     throw err;
   }
 }
@@ -241,7 +242,7 @@ async function runReconciliation() {
  */
 function start(intervalMs = POLL_INTERVAL_MS) {
   if (intervalId) {
-    console.warn('[SettlementReconciler] Already running');
+    logger.warn('[SettlementReconciler] Already running');
     return;
   }
 
@@ -249,12 +250,12 @@ function start(intervalMs = POLL_INTERVAL_MS) {
   
   // Run immediately on start
   runReconciliation().catch(err => {
-    console.error('[SettlementReconciler] Initial reconciliation failed:', err);
+    logger.error('[SettlementReconciler] Initial reconciliation failed:', err);
   });
 
   intervalId = setInterval(() => {
     runReconciliation().catch(err => {
-      console.error('[SettlementReconciler] Reconciliation cycle failed:', err);
+      logger.error('[SettlementReconciler] Reconciliation cycle failed:', err);
     });
   }, intervalMs);
 }

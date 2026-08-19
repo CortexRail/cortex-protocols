@@ -12,6 +12,7 @@
 
 const settlementRepository = require("../repositories/settlementRepository");
 const { withTransaction } = require("../db/connection");
+const { logger } = require("../utils/logger");
 
 const MAX_RETRIES = 3;
 
@@ -93,11 +94,11 @@ async function failSettlement(id, error) {
         `Max retries (${MAX_RETRIES}) exceeded`,
         client
       );
-      console.error(`[SettlementLedger] Settlement ${id} moved to DEAD_LETTERED after ${MAX_RETRIES} failures`);
+      logger.error(`[SettlementLedger] Settlement ${id} moved to DEAD_LETTERED after ${MAX_RETRIES} failures`);
       return deadLettered;
     }
 
-    console.warn(`[SettlementLedger] Settlement ${id} FAILED (attempt ${settlement.retryCount}/${MAX_RETRIES}): ${errorMessage}`);
+    logger.warn(`[SettlementLedger] Settlement ${id} FAILED (attempt ${settlement.retryCount}/${MAX_RETRIES}): ${errorMessage}`);
     return settlement;
   });
 }
@@ -114,7 +115,7 @@ async function recoverPendingSettlements() {
   });
 
   if (pending.length > 0) {
-    console.warn(`[SettlementLedger] Found ${pending.length} PENDING settlements from crash - will replay`);
+    logger.warn(`[SettlementLedger] Found ${pending.length} PENDING settlements from crash - will replay`);
   } else {
     console.info('[SettlementLedger] No PENDING settlements to recover');
   }
