@@ -142,11 +142,7 @@ router.post(
   [
     param("id").isInt({ min: 1 }),
     body("score").isInt({ min: 0, max: 100 }),
-    body("voter")
-      .isString()
-      .bail()
-      .custom(isValidStellarAddress)
-      .withMessage("must be a valid Stellar public key"),
+    body("voter").isString().isLength({ min: 56, max: 56 }),
   ],
   validate,
   (req, res) => {

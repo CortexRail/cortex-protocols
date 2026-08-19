@@ -28,6 +28,13 @@ const ASSET_HISTORY: Symbol = symbol_short!("A_HIST");
 const OWNER: Symbol = symbol_short!("OWNER");
 const HISTORY_LIMIT: u32 = 5;
 
+const ESCROW_HOLD_LEDGERS: u32 = 100;
+const ESCROWS: Symbol = symbol_short!("ESCROWS");
+const DISPUTES: Symbol = symbol_short!("DISPUTES");
+const ARBITRATORS: Symbol = symbol_short!("ARBITRARS");
+const LICENSE_COUNT: Symbol = symbol_short!("L_COUNT");
+const DISPUTE_COUNT: Symbol = symbol_short!("D_COUNT");
+
 const AUCTIONS: Symbol = symbol_short!("AUCTIONS");
 const AUCTION_COUNT: Symbol = symbol_short!("AUCT_CNT");
 const COMMITMENTS: Symbol = symbol_short!("COMMITS");
@@ -35,10 +42,9 @@ const BIDS: Symbol = symbol_short!("BIDS");
 
 /// Hard cap on concurrently listed assets.
 const MAX_ASSETS: u64 = 10_000;
-
-/// Longest allowed listing name, in bytes.
+/// Maximum byte length of an asset name.
 const MAX_NAME_LEN: u32 = 200;
-/// Longest allowed listing description, in bytes.
+/// Maximum byte length of an asset description.
 const MAX_DESC_LEN: u32 = 2_000;
 
 /// Any reveal landing in the final `SNIPING_WINDOW` ledgers of the reveal
@@ -104,14 +110,72 @@ pub struct AssetVersion {
 
 /// A purchase record / license grant
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct License {
+    pub id: u64,
     pub asset_id: u64,
     pub asset_version: u32,
     pub buyer: Address,
     pub license_type: LicenseType,
     pub purchased_at: u64,
     pub calls_remaining: u64,
+}
+
+/// Status of an escrow hold
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EscrowStatus {
+    Held,
+    Released,
+    Disputed,
+    Resolved,
+}
+
+/// Status of a purchase dispute
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeStatus {
+    Open,
+    Resolved,
+}
+
+/// Arbitration refund outcome decision
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RefundDecision {
+    None,
+    FullRefund,
+    /// Basis points split: 1 to 10000 (10000 = 100% refund)
+    PartialRefund(u32),
+    ReleaseToSeller,
+}
+
+/// Escrow hold record
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowHold {
+    pub license_id: u64,
+    pub buyer: Address,
+    pub seller: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub created_at: u64,
+    pub created_ledger: u32,
+    pub hold_until_ledger: u32,
+    pub status: EscrowStatus,
+}
+
+/// Purchase dispute record
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchaseDispute {
+    pub dispute_id: u64,
+    pub license_id: u64,
+    pub buyer: Address,
+    pub evidence_hash: BytesN<32>,
+    pub created_at: u64,
+    pub status: DisputeStatus,
+    pub decision: RefundDecision,
 }
 
 /// Exact pre-versioning asset encoding retained for storage migration.
@@ -268,8 +332,6 @@ fn load_asset(env: &Env, asset_id: u64) -> Option<IntelligenceAsset> {
         version: 1,
     };
 
-    // Legacy state remains untouched. The V2 asset and its version-1 history
-    // are fully written before this migration is considered complete.
     store_v2_asset(env, &asset);
     ensure_history(env, &asset);
     Some(asset)
@@ -284,6 +346,7 @@ fn load_license(env: &Env, buyer: &Address, asset_id: u64) -> Option<License> {
     let legacy_key = (LISTINGS, buyer.clone(), asset_id);
     let legacy: LegacyLicense = env.storage().persistent().get(&legacy_key)?;
     let license = License {
+        id: 0,
         asset_id: legacy.asset_id,
         asset_version: 1,
         buyer: legacy.buyer,
@@ -329,6 +392,39 @@ fn commitment_preimage(env: &Env, amount: i128, salt: &BytesN<32>) -> Bytes {
     input
 }
 
+fn get_escrows_map(env: &Env) -> Map<u64, EscrowHold> {
+    env.storage()
+        .persistent()
+        .get(&ESCROWS)
+        .unwrap_or(Map::new(env))
+}
+
+fn set_escrow(env: &Env, license_id: u64, escrow: &EscrowHold) {
+    let mut escrows = get_escrows_map(env);
+    escrows.set(license_id, escrow.clone());
+    env.storage().persistent().set(&ESCROWS, &escrows);
+}
+
+fn get_disputes_map(env: &Env) -> Map<u64, PurchaseDispute> {
+    env.storage()
+        .persistent()
+        .get(&DISPUTES)
+        .unwrap_or(Map::new(env))
+}
+
+fn set_dispute(env: &Env, dispute_id: u64, dispute: &PurchaseDispute) {
+    let mut disputes = get_disputes_map(env);
+    disputes.set(dispute_id, dispute.clone());
+    env.storage().persistent().set(&DISPUTES, &disputes);
+}
+
+fn get_arbitrators_list(env: &Env) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get(&ARBITRATORS)
+        .unwrap_or(Vec::new(env))
+}
+
 // ── Contract ─────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -343,13 +439,11 @@ impl MarketplaceContract {
         owner.require_auth();
         env.storage().instance().set(&OWNER, &owner);
         env.storage().instance().set(&ASSET_COUNT, &0u64);
+        env.storage().instance().set(&LICENSE_COUNT, &0u64);
+        env.storage().instance().set(&DISPUTE_COUNT, &0u64);
     }
 
     /// Upgrade the contract to new WASM code. Owner-only.
-    ///
-    /// `new_wasm_hash` must reference WASM already uploaded to the network
-    /// (`stellar contract upload`). Storage is preserved across upgrades;
-    /// the new code serves every invocation after this transaction.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         let owner: Address = env
             .storage()
@@ -377,7 +471,6 @@ impl MarketplaceContract {
 
     // ── Asset Management ──────────────────────────────────────────────────
 
-    /// List a new intelligence asset on the marketplace.
     ///
     /// # Errors
     /// - [`MarketplaceError::InvalidPrice`]      — `price` must be > 0.
@@ -385,6 +478,8 @@ impl MarketplaceContract {
     ///                                             `description` must be 1–2 000 bytes.
     /// - [`MarketplaceError::AssetLimitReached`] — contract has already reached
     ///                                             `MAX_ASSETS` (10 000) listings.
+    /// List a new asset. Metadata is validated against the on-chain limits:
+    /// a positive price, a 1–200 byte name, and a 1–2 000 byte description.
     pub fn list_asset(
         env: Env,
         owner: Address,
@@ -399,10 +494,10 @@ impl MarketplaceContract {
         if price <= 0 {
             return Err(MarketplaceError::InvalidPrice);
         }
-        if name.len() == 0 || name.len() > MAX_NAME_LEN {
+        if name.is_empty() || name.len() > MAX_NAME_LEN {
             return Err(MarketplaceError::InvalidMetadata);
         }
-        if description.len() == 0 || description.len() > MAX_DESC_LEN {
+        if description.is_empty() || description.len() > MAX_DESC_LEN {
             return Err(MarketplaceError::InvalidMetadata);
         }
 
@@ -490,17 +585,16 @@ impl MarketplaceContract {
         );
     }
 
-    // ── Purchasing ────────────────────────────────────────────────────────
+    // ── Purchasing & Escrow ────────────────────────────────────────────────
 
-    /// Purchase a license for an intelligence asset.
-    /// Payment is validated via a pre-authorized token transfer.
+    /// Purchase a license for an intelligence asset. Funds are held in escrow.
     pub fn purchase_license(env: Env, buyer: Address, asset_id: u64, token: Address) -> License {
         let asset = load_asset(&env, asset_id).expect("asset not found");
         let asset_version = asset.version;
         Self::purchase_license_for_version(env, buyer, asset, asset_id, asset_version, token)
     }
 
-    /// Purchase and pin a license to a retained asset version.
+    /// Purchase and pin a license to a retained asset version. Funds are held in escrow.
     pub fn purchase_license_version(
         env: Env,
         buyer: Address,
@@ -534,16 +628,21 @@ impl MarketplaceContract {
         assert!(asset.is_active, "asset is not active");
         assert!(buyer != asset.owner, "cannot buy own asset");
 
-        // Transfer payment from buyer to asset owner
+        // Transfer payment from buyer into contract escrow account
         let token_client = soroban_sdk::token::Client::new(&env, &token);
-        token_client.transfer(&buyer, &asset.owner, &asset.price);
+        token_client.transfer(&buyer, &env.current_contract_address(), &asset.price);
+
+        let lic_count: u64 = env.storage().instance().get(&LICENSE_COUNT).unwrap_or(0u64);
+        let license_id = lic_count + 1;
+        env.storage().instance().set(&LICENSE_COUNT, &license_id);
 
         let calls_remaining: u64 = match asset.license {
-            LicenseType::UsageBased => 100, // default call bundle
+            LicenseType::UsageBased => 100,
             _ => u64::MAX,
         };
 
         let license = License {
+            id: license_id,
             asset_id,
             asset_version,
             buyer: buyer.clone(),
@@ -552,16 +651,31 @@ impl MarketplaceContract {
             calls_remaining,
         };
 
-        // Record license
         let license_key = license_v2_key(buyer.clone(), asset_id);
         env.storage().persistent().set(&license_key, &license);
 
-        // Increment usage counter
+        // Record Escrow Hold
+        let current_ledger = env.ledger().sequence();
+        let hold_until_ledger = current_ledger + ESCROW_HOLD_LEDGERS;
+
+        let escrow = EscrowHold {
+            license_id,
+            buyer: buyer.clone(),
+            seller: asset.owner.clone(),
+            token: token.clone(),
+            amount: asset.price,
+            created_at: env.ledger().timestamp(),
+            created_ledger: current_ledger,
+            hold_until_ledger,
+            status: EscrowStatus::Held,
+        };
+        set_escrow(&env, license_id, &escrow);
+
         asset.usage_count += 1;
         store_v2_asset(&env, &asset);
 
         env.events()
-            .publish((symbol_short!("PURCHASED"), buyer), (asset_id, asset.price));
+            .publish((symbol_short!("PURCHASED"), buyer), (license_id, asset_id, asset.price));
 
         license
     }
@@ -876,6 +990,224 @@ impl MarketplaceContract {
         Ok(winners)
     }
 
+    /// Callable by anyone after the hold period if no dispute was raised; releases funds to seller.
+    pub fn release_escrow(env: Env, license_id: u64) -> Result<(), MarketplaceError> {
+        let escrows = get_escrows_map(&env);
+        let mut escrow = escrows
+            .get(license_id)
+            .ok_or(MarketplaceError::EscrowNotFound)?;
+
+        if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Resolved {
+            return Err(MarketplaceError::EscrowAlreadyReleased);
+        }
+        if escrow.status == EscrowStatus::Disputed {
+            return Err(MarketplaceError::EscrowDisputed);
+        }
+        if env.ledger().sequence() < escrow.hold_until_ledger {
+            return Err(MarketplaceError::DisputeWindowClosed);
+        }
+
+        let token_client = soroban_sdk::token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &escrow.seller, &escrow.amount);
+
+        escrow.status = EscrowStatus::Released;
+        set_escrow(&env, license_id, &escrow);
+
+        env.events().publish(
+            (Symbol::new(&env, "ESCROW_RELEASED"), escrow.seller.clone()),
+            (license_id, escrow.amount),
+        );
+
+        Ok(())
+    }
+
+    // ── Dispute & Arbitration ──────────────────────────────────────────────
+
+    /// Freezes the escrow during the hold window; callable by buyer.
+    pub fn raise_purchase_dispute(
+        env: Env,
+        buyer: Address,
+        license_id: u64,
+        evidence_hash: BytesN<32>,
+    ) -> Result<u64, MarketplaceError> {
+        buyer.require_auth();
+
+        let escrows = get_escrows_map(&env);
+        let mut escrow = escrows
+            .get(license_id)
+            .ok_or(MarketplaceError::EscrowNotFound)?;
+
+        if escrow.buyer != buyer {
+            return Err(MarketplaceError::Unauthorized);
+        }
+        if escrow.status == EscrowStatus::Released {
+            return Err(MarketplaceError::EscrowAlreadyReleased);
+        }
+        if escrow.status == EscrowStatus::Disputed || escrow.status == EscrowStatus::Resolved {
+            return Err(MarketplaceError::EscrowDisputed);
+        }
+        if env.ledger().sequence() >= escrow.hold_until_ledger {
+            return Err(MarketplaceError::DisputeWindowClosed);
+        }
+
+        escrow.status = EscrowStatus::Disputed;
+        set_escrow(&env, license_id, &escrow);
+
+        let dsp_count: u64 = env.storage().instance().get(&DISPUTE_COUNT).unwrap_or(0u64);
+        let dispute_id = dsp_count + 1;
+        env.storage().instance().set(&DISPUTE_COUNT, &dispute_id);
+
+        let dispute = PurchaseDispute {
+            dispute_id,
+            license_id,
+            buyer: buyer.clone(),
+            evidence_hash: evidence_hash.clone(),
+            created_at: env.ledger().timestamp(),
+            status: DisputeStatus::Open,
+            decision: RefundDecision::None,
+        };
+        set_dispute(&env, dispute_id, &dispute);
+
+        env.events().publish(
+            (Symbol::new(&env, "PURCHASE_DISPUTE_RAISED"), buyer.clone()),
+            (dispute_id, license_id, evidence_hash),
+        );
+
+        Ok(dispute_id)
+    }
+
+    /// Owner registers an arbitrator address into the fixed arbitration committee.
+    pub fn register_arbitrator(env: Env, arbitrator: Address) -> Result<(), MarketplaceError> {
+        let owner: Address = env
+            .storage()
+            .instance()
+            .get(&OWNER)
+            .expect("contract not initialized");
+        owner.require_auth();
+
+        let mut arbitrators = get_arbitrators_list(&env);
+        if !arbitrators.contains(&arbitrator) {
+            arbitrators.push_back(arbitrator);
+            env.storage().persistent().set(&ARBITRATORS, &arbitrators);
+        }
+
+        Ok(())
+    }
+
+    /// Resolves a purchase dispute based on majority vote of the arbitrator committee.
+    pub fn resolve_purchase_dispute(
+        env: Env,
+        dispute_id: u64,
+        arbitrator_votes: Vec<(Address, RefundDecision)>,
+    ) -> Result<(), MarketplaceError> {
+        let disputes = get_disputes_map(&env);
+        let mut dispute = disputes
+            .get(dispute_id)
+            .ok_or(MarketplaceError::DisputeNotFound)?;
+
+        if dispute.status != DisputeStatus::Open {
+            return Err(MarketplaceError::DisputeAlreadyResolved);
+        }
+        if arbitrator_votes.is_empty() {
+            return Err(MarketplaceError::NoArbitratorVotes);
+        }
+
+        let arbitrators = get_arbitrators_list(&env);
+
+        for vote in arbitrator_votes.iter() {
+            let (voter, _) = vote;
+            if !arbitrators.contains(&voter) {
+                return Err(MarketplaceError::NotArbitrator);
+            }
+        }
+
+        let mut full_refund_votes: u32 = 0;
+        let mut release_votes: u32 = 0;
+        let mut partial_refund_votes: u32 = 0;
+        let mut sum_partial_bps: u64 = 0;
+
+        for vote in arbitrator_votes.iter() {
+            let (_, decision) = vote;
+            match decision {
+                RefundDecision::FullRefund => full_refund_votes += 1,
+                RefundDecision::ReleaseToSeller => release_votes += 1,
+                RefundDecision::PartialRefund(bps) => {
+                    if bps > 10000 {
+                        return Err(MarketplaceError::InvalidRefundBps);
+                    }
+                    partial_refund_votes += 1;
+                    sum_partial_bps += bps as u64;
+                }
+                RefundDecision::None => {}
+            }
+        }
+
+        let winning_decision = if full_refund_votes > release_votes
+            && full_refund_votes >= partial_refund_votes
+        {
+            RefundDecision::FullRefund
+        } else if release_votes > full_refund_votes && release_votes >= partial_refund_votes {
+            RefundDecision::ReleaseToSeller
+        } else if partial_refund_votes > 0 {
+            let avg_bps = (sum_partial_bps / partial_refund_votes as u64) as u32;
+            RefundDecision::PartialRefund(avg_bps)
+        } else {
+            RefundDecision::PartialRefund(5000)
+        };
+
+        let escrows = get_escrows_map(&env);
+        let mut escrow = escrows
+            .get(dispute.license_id)
+            .ok_or(MarketplaceError::EscrowNotFound)?;
+
+        let token_client = soroban_sdk::token::Client::new(&env, &escrow.token);
+        let contract_addr = env.current_contract_address();
+
+        match winning_decision {
+            RefundDecision::FullRefund => {
+                token_client.transfer(&contract_addr, &escrow.buyer, &escrow.amount);
+            }
+            RefundDecision::ReleaseToSeller => {
+                token_client.transfer(&contract_addr, &escrow.seller, &escrow.amount);
+            }
+            RefundDecision::PartialRefund(bps) => {
+                if bps > 10000 {
+                    return Err(MarketplaceError::InvalidRefundBps);
+                }
+                let refund_amount = (escrow.amount * (bps as i128)) / 10000;
+                let seller_amount = escrow.amount - refund_amount;
+                if refund_amount > 0 {
+                    token_client.transfer(&contract_addr, &escrow.buyer, &refund_amount);
+                }
+                if seller_amount > 0 {
+                    token_client.transfer(&contract_addr, &escrow.seller, &seller_amount);
+                }
+            }
+            RefundDecision::None => {}
+        }
+
+        escrow.status = EscrowStatus::Resolved;
+        set_escrow(&env, dispute.license_id, &escrow);
+
+        dispute.status = DisputeStatus::Resolved;
+        dispute.decision = winning_decision.clone();
+        set_dispute(&env, dispute_id, &dispute);
+
+        let decision_val = match winning_decision {
+            RefundDecision::FullRefund => 1u32,
+            RefundDecision::PartialRefund(bps) => 20000u32 + bps,
+            RefundDecision::ReleaseToSeller => 3u32,
+            RefundDecision::None => 0u32,
+        };
+
+        env.events().publish(
+            (Symbol::new(&env, "PURCHASE_DISPUTE_RESOLVED"), escrow.buyer.clone()),
+            (dispute_id, dispute.license_id, decision_val),
+        );
+
+        Ok(())
+    }
+
     // ── Queries ───────────────────────────────────────────────────────────
 
     /// Retrieve an asset by ID.
@@ -923,4 +1255,25 @@ impl MarketplaceContract {
             .persistent()
             .get(&bid_key(auction_id, &bidder))
     }
+
+    /// Retrieve an escrow hold by license ID.
+    pub fn get_escrow(env: Env, license_id: u64) -> Option<EscrowHold> {
+        get_escrows_map(&env).get(license_id)
+    }
+
+    /// Retrieve a dispute by dispute ID.
+    pub fn get_dispute(env: Env, dispute_id: u64) -> Option<PurchaseDispute> {
+        get_disputes_map(&env).get(dispute_id)
+    }
+
+    /// Retrieve the list of registered arbitrators.
+    pub fn get_arbitrators(env: Env) -> Vec<Address> {
+        get_arbitrators_list(&env)
+    }
+
+    /// Check if an address is a registered arbitrator.
+    pub fn is_arbitrator(env: Env, address: Address) -> bool {
+        get_arbitrators_list(&env).contains(&address)
+    }
 }
+

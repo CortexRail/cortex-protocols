@@ -1,3 +1,5 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import WalletFundingButton from "../WalletFundingButton";
@@ -6,11 +8,12 @@ const VALID_KEY = "GDQRRTSA2OFYBTJT2Y7BWE5HM5TGQJBSTD2VJKSCOH62SY7TRYLUS24Y";
 
 describe("WalletFundingButton", () => {
   beforeEach(() => {
-    global.fetch = jest.fn();
+    vi.stubGlobal("fetch", vi.fn());
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("is not rendered when balance is greater than 0", () => {
@@ -19,7 +22,7 @@ describe("WalletFundingButton", () => {
         publicKey={VALID_KEY}
         network="testnet"
         balanceXLM={50}
-        onFunded={jest.fn()}
+        onFunded={vi.fn()}
       />
     );
     expect(container).toBeEmptyDOMElement();
@@ -31,7 +34,7 @@ describe("WalletFundingButton", () => {
         publicKey={VALID_KEY}
         network="mainnet"
         balanceXLM={0}
-        onFunded={jest.fn()}
+        onFunded={vi.fn()}
       />
     );
     expect(container).toBeEmptyDOMElement();
@@ -43,7 +46,7 @@ describe("WalletFundingButton", () => {
         publicKey={VALID_KEY}
         network="testnet"
         balanceXLM={0}
-        onFunded={jest.fn()}
+        onFunded={vi.fn()}
       />
     );
     expect(
@@ -53,7 +56,7 @@ describe("WalletFundingButton", () => {
 
   it("shows a loading state and disables the button while funding", async () => {
     let resolveFetch: (value: unknown) => void = () => {};
-    (global.fetch as jest.Mock).mockReturnValue(
+    (global.fetch as Mock).mockReturnValue(
       new Promise((resolve) => {
         resolveFetch = resolve;
       })
@@ -65,7 +68,7 @@ describe("WalletFundingButton", () => {
         publicKey={VALID_KEY}
         network="testnet"
         balanceXLM={0}
-        onFunded={jest.fn()}
+        onFunded={vi.fn()}
       />
     );
 
@@ -83,11 +86,11 @@ describe("WalletFundingButton", () => {
   });
 
   it("shows success feedback and calls onFunded after a successful request", async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
+    (global.fetch as Mock).mockResolvedValue({
       ok: true,
       json: async () => ({ publicKey: VALID_KEY, funded: true, hash: "abc" }),
     });
-    const onFunded = jest.fn();
+    const onFunded = vi.fn();
 
     const user = userEvent.setup();
     render(
@@ -108,7 +111,7 @@ describe("WalletFundingButton", () => {
   });
 
   it("shows an error message when the API call fails", async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
+    (global.fetch as Mock).mockResolvedValue({
       ok: false,
       json: async () => ({ error: "Friendbot is only available on Stellar Testnet." }),
     });
@@ -119,7 +122,7 @@ describe("WalletFundingButton", () => {
         publicKey={VALID_KEY}
         network="testnet"
         balanceXLM={0}
-        onFunded={jest.fn()}
+        onFunded={vi.fn()}
       />
     );
 
@@ -133,7 +136,7 @@ describe("WalletFundingButton", () => {
   });
 
   it("shows a generic error message on a network failure", async () => {
-    (global.fetch as jest.Mock).mockRejectedValue(new Error("network down"));
+    (global.fetch as Mock).mockRejectedValue(new Error("network down"));
 
     const user = userEvent.setup();
     render(
@@ -141,7 +144,7 @@ describe("WalletFundingButton", () => {
         publicKey={VALID_KEY}
         network="testnet"
         balanceXLM={0}
-        onFunded={jest.fn()}
+        onFunded={vi.fn()}
       />
     );
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -18,25 +18,13 @@ interface Agent {
 }
 
 interface ReputationHistoryResponse {
-  data: ReputationHistoryEntry[];
+  data: Array<{ score: number; voter: string; timestamp: number }>;
   meta: { agentId: string; count: number };
 }
 
-interface ReputationHistoryEntry {
-  score: number;
-  voter: string;
-  timestamp: number;
-}
-
 interface ActivityFeedResponse {
-  data: ActivityEntry[];
+  data: Array<{ type: string; data: any; timestamp: number }>;
   meta: { total: number; page: number; limit: number; pages: number };
-}
-
-interface ActivityEntry {
-  type: string;
-  data: unknown;
-  timestamp: number;
 }
 
 export default function AgentProfilePage() {
@@ -44,71 +32,58 @@ export default function AgentProfilePage() {
   const agentId = params.id as string;
 
   const [agent, setAgent] = useState<Agent | null>(null);
-  const [reputationHistory, setReputationHistory] = useState<ReputationHistoryEntry[]>([]);
-  const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [reputationHistory, setReputationHistory] = useState<any[]>([]);
+  const [activity, setActivity] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"overview" | "reputation" | "activity">("overview");
   const [voteScore, setVoteScore] = useState(50);
   const [loading, setLoading] = useState(true);
 
-  const fetchAgent = useCallback(async () => {
+  useEffect(() => {
+    fetchAgent();
+    fetchReputationHistory();
+    fetchActivity();
+  }, [agentId]);
+
+  async function fetchAgent() {
     try {
       const res = await fetch(`http://localhost:4000/api/v1/agents/${agentId}`);
       if (res.ok) {
-        return (await res.json()) as Agent;
+        setAgent(await res.json());
       }
     } catch (err) {
       console.error("Failed to fetch agent:", err);
+    } finally {
+      setLoading(false);
     }
-    return null;
-  }, [agentId]);
+  }
 
-  const fetchReputationHistory = useCallback(async () => {
+  async function fetchReputationHistory() {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/${agentId}/reputation-history?limit=30`
       );
       if (res.ok) {
         const data: ReputationHistoryResponse = await res.json();
-        return data.data;
+        setReputationHistory(data.data);
       }
     } catch (err) {
       console.error("Failed to fetch reputation history:", err);
     }
-    return null;
-  }, [agentId]);
+  }
 
-  const fetchActivity = useCallback(async () => {
+  async function fetchActivity() {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/${agentId}/activity?limit=20`
       );
       if (res.ok) {
         const data: ActivityFeedResponse = await res.json();
-        return data.data;
+        setActivity(data.data);
       }
     } catch (err) {
       console.error("Failed to fetch activity:", err);
     }
-    return null;
-  }, [agentId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    Promise.all([fetchAgent(), fetchReputationHistory(), fetchActivity()]).then(
-      ([nextAgent, nextReputationHistory, nextActivity]) => {
-        if (cancelled) return;
-        if (nextAgent) setAgent(nextAgent);
-        if (nextReputationHistory) setReputationHistory(nextReputationHistory);
-        if (nextActivity) setActivity(nextActivity);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchActivity, fetchAgent, fetchReputationHistory]);
+  }
 
   async function submitVote() {
     try {
@@ -122,8 +97,7 @@ export default function AgentProfilePage() {
       });
       if (res.ok) {
         alert("Vote submitted!");
-        const nextReputationHistory = await fetchReputationHistory();
-        if (nextReputationHistory) setReputationHistory(nextReputationHistory);
+        fetchReputationHistory();
       }
     } catch (err) {
       console.error("Failed to submit vote:", err);
@@ -132,8 +106,8 @@ export default function AgentProfilePage() {
 
   if (loading || !agent) {
     return (
-      <main className="min-h-screen bg-white dark:bg-black text-black dark:text-white pt-20 px-6 flex items-center justify-center">
-        <p className="text-zinc-500 dark:text-zinc-400">Loading agent profile...</p>
+      <main className="min-h-screen bg-black text-white pt-12 px-6 flex items-center justify-center">
+        <p className="text-zinc-400">Loading agent profile...</p>
       </main>
     );
   }
@@ -154,14 +128,14 @@ export default function AgentProfilePage() {
   };
 
   return (
-    <main className="min-h-screen bg-white dark:bg-black text-black dark:text-white pt-20 px-6 pb-12">
+    <main className="min-h-screen bg-black text-white pt-12 px-6 pb-12">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex items-start justify-between mb-8 pb-6 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-start justify-between mb-8 pb-6 border-b border-zinc-800">
           <div className="flex-1">
             <Link
               href="/agents"
-              className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white mb-4 inline-block text-sm"
+              className="text-zinc-400 hover:text-white mb-4 inline-block text-sm"
             >
               ← Back to Directory
             </Link>
@@ -171,7 +145,7 @@ export default function AgentProfilePage() {
               <div>
                 <h1 className="text-3xl font-bold mb-2">{agent.name}</h1>
                 <div className="flex items-center gap-3">
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400 font-mono">
+                  <p className="text-sm text-zinc-400 font-mono">
                     {agent.owner.slice(0, 20)}...
                   </p>
                   {isVerified && (
@@ -185,7 +159,7 @@ export default function AgentProfilePage() {
           </div>
 
           <div className="text-right">
-            <p className="text-sm text-zinc-400 dark:text-zinc-500 mb-1">Reputation</p>
+            <p className="text-sm text-zinc-500 mb-1">Reputation</p>
             <p className={`text-3xl font-bold ${getRepColor(avgRep)}`}>
               {avgRep}%
             </p>
@@ -205,21 +179,21 @@ export default function AgentProfilePage() {
               value: agent.capabilities.length,
             },
           ].map(({ label, value }) => (
-            <div key={label} className="p-4 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg">
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">{label}</p>
+            <div key={label} className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg">
+              <p className="text-xs text-zinc-500 mb-2">{label}</p>
               <p className="text-xl font-bold">{value}</p>
             </div>
           ))}
         </div>
 
         {/* Description */}
-        <div className="p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg mb-8">
+        <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-lg mb-8">
           <h3 className="font-semibold mb-2">About</h3>
-          <p className="text-zinc-600 dark:text-zinc-300">{agent.description}</p>
+          <p className="text-zinc-300">{agent.description}</p>
         </div>
 
         {/* Capabilities */}
-        <div className="p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg mb-8">
+        <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-lg mb-8">
           <h3 className="font-semibold mb-4">Capabilities</h3>
           <div className="flex flex-wrap gap-2">
             {agent.capabilities.map((cap) => (
@@ -231,15 +205,15 @@ export default function AgentProfilePage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-4 mb-6 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="flex gap-4 mb-6 border-b border-zinc-800">
           {(["overview", "reputation", "activity"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${
                 activeTab === tab
-                  ? "border-purple-500 text-black dark:text-white"
-                  : "border-transparent text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                  ? "border-purple-500 text-white"
+                  : "border-transparent text-zinc-400 hover:text-white"
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -251,11 +225,11 @@ export default function AgentProfilePage() {
         {activeTab === "reputation" && (
           <div className="space-y-6">
             {/* Reputation Chart */}
-            <div className="p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+            <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-lg">
               <h3 className="font-semibold mb-4">Reputation History</h3>
               {reputationHistory.length > 0 ? (
                 <div>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+                  <p className="text-sm text-zinc-400 mb-4">
                     Last {reputationHistory.length} votes
                   </p>
                   <div className="space-y-2">
@@ -275,16 +249,16 @@ export default function AgentProfilePage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-zinc-500 dark:text-zinc-400 text-sm">No reputation votes yet</p>
+                <p className="text-zinc-400 text-sm">No reputation votes yet</p>
               )}
             </div>
 
             {/* Vote Form */}
-            <div className="p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+            <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-lg">
               <h3 className="font-semibold mb-4">Vote on Reputation</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm text-zinc-500 dark:text-zinc-400 mb-2 block">
+                  <label className="text-sm text-zinc-400 mb-2 block">
                     Score: {voteScore}%
                   </label>
                   <input
@@ -295,7 +269,7 @@ export default function AgentProfilePage() {
                     onChange={(e) => setVoteScore(Number(e.target.value))}
                     className="w-full"
                   />
-                  <div className="flex justify-between text-xs text-zinc-400 dark:text-zinc-500 mt-2">
+                  <div className="flex justify-between text-xs text-zinc-500 mt-2">
                     <span>Poor</span>
                     <span>Fair</span>
                     <span>Good</span>
@@ -318,22 +292,22 @@ export default function AgentProfilePage() {
           <div className="space-y-3">
             {activity.length > 0 ? (
               activity.map((event, idx) => (
-                <div key={idx} className="p-4 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+                <div key={idx} className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg">
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="font-semibold text-sm">{event.type}</p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                      <p className="text-xs text-zinc-400 mt-1">
                         {new Date(event.timestamp).toLocaleString()}
                       </p>
                     </div>
-                    <span className="text-xs text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">
+                    <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-1 rounded">
                       {JSON.stringify(event.data).substring(0, 30)}...
                     </span>
                   </div>
                 </div>
               ))
             ) : (
-              <p className="text-zinc-500 dark:text-zinc-400 text-sm">No activity yet</p>
+              <p className="text-zinc-400 text-sm">No activity yet</p>
             )}
           </div>
         )}

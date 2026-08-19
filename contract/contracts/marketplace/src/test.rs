@@ -1,9 +1,7 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _, Ledger, MockAuth, MockAuthInvoke},
+    testutils::{Address as _, Events as _, Ledger as _, MockAuth, MockAuthInvoke},
     token, vec, Address, Bytes, BytesN, Env, FromVal, IntoVal, Map, String,
 };
 
@@ -28,14 +26,14 @@ fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, token::StellarAs
 /// Build a `soroban_sdk::String` from a `&str` that is exactly `n` bytes long
 /// by repeating the character `'a'` (1 byte each in UTF-8).
 fn str_of_len(env: &Env, n: usize) -> String {
-    // Build the string in a std buffer (we are in test context so std is fine
-    // via the test harness).
+    // The helper is only used from test code, so thread-local std allocations
+    // are fine here.
     extern crate std;
-    let v: std::vec::Vec<u8> = std::vec![b'a'; n];
-    String::from_bytes(env, &v)
+    let raw: std::vec::Vec<u8> = std::vec![b'a'; n];
+    String::from_bytes(env, &raw)
 }
 
-// ── Existing happy-path tests (updated to unwrap Result) ──────────────────────
+// ── Existing happy-path tests ─────────────────────────────────────────────────
 
 #[test]
 fn test_initialize() {
@@ -51,17 +49,31 @@ fn test_list_and_get_asset() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "GPT-4 Chain-of-Thought Prompt"),
-            &String::from_str(&env, "Advanced reasoning prompt for complex analysis"),
-            &AssetType::Prompt,
-            &LicenseType::Perpetual,
-            &5_000_000i128, // 0.5 XLM
-        );
+let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "GPT-4 Chain-of-Thought Prompt"),
+        &String::from_str(&env, "Advanced reasoning prompt for complex analysis"),
+        &AssetType::Prompt,
+        &LicenseType::Perpetual,
+        &5_000_000i128, // 0.5 XLM
+    );
 
     assert_eq!(asset_id, 1);
+
+    // Inspect the LISTED event before issuing any further contract call:
+    // invocation metering clears prior events at the start of the next one.
+    let events = env.events().all();
+    assert_eq!(events.len(), 1);
+    let (_, topics, data) = events.last().unwrap();
+    let expected_topics = vec![
+        &env,
+        symbol_short!("LISTED").into_val(&env),
+        admin.into_val(&env),
+    ];
+    let emitted = u64::from_val(&env, &data);
+    assert_eq!(topics, expected_topics);
+    assert_eq!(emitted, asset_id);
+
     assert_eq!(client.asset_count(), 1);
 
     let asset = client.get_asset(&1).unwrap();
@@ -223,15 +235,14 @@ fn test_multiple_assets() {
             String::from_str(&env, "Asset Five")
         };
 
-        client
-            .list_asset(
-                &admin,
-                &name,
-                &String::from_str(&env, "A test intelligence asset"),
-                &AssetType::Workflow,
-                &LicenseType::UsageBased,
-                &1_000_000i128,
-            );
+client.list_asset(
+            &admin,
+            &name,
+            &String::from_str(&env, "A test intelligence asset"),
+            &AssetType::Workflow,
+            &LicenseType::UsageBased,
+            &1_000_000i128,
+        );
     }
 
     assert_eq!(client.asset_count(), 5);
@@ -243,15 +254,14 @@ fn test_delist_asset() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Deprecated Evaluator"),
-            &String::from_str(&env, "Old evaluator being retired"),
-            &AssetType::Evaluator,
-            &LicenseType::Perpetual,
-            &2_000_000i128,
-        );
+let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Deprecated Evaluator"),
+        &String::from_str(&env, "Old evaluator being retired"),
+        &AssetType::Evaluator,
+        &LicenseType::Perpetual,
+        &2_000_000i128,
+    );
 
     client.delist_asset(&admin, &asset_id);
 
@@ -265,15 +275,14 @@ fn test_update_price() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Memory System v1"),
-            &String::from_str(&env, "Persistent agent memory module"),
-            &AssetType::MemorySystem,
-            &LicenseType::Subscription,
-            &10_000_000i128,
-        );
+let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Memory System v1"),
+        &String::from_str(&env, "Persistent agent memory module"),
+        &AssetType::MemorySystem,
+        &LicenseType::Subscription,
+        &10_000_000i128,
+    );
 
     client.update_price(&admin, &asset_id, &15_000_000i128);
 
@@ -291,15 +300,14 @@ fn test_purchase_license() {
     let (token_addr, token_sac) = create_token(&env, &buyer);
     token_sac.mint(&buyer, &50_000_000);
 
-    let asset_id = client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Reasoning Chain Alpha"),
-            &String::from_str(&env, "Multi-step reasoning for legal analysis"),
-            &AssetType::ReasoningChain,
-            &LicenseType::Perpetual,
-            &10_000_000i128,
-        );
+let asset_id = client.list_asset(
+        &admin,
+        &String::from_str(&env, "Reasoning Chain Alpha"),
+        &String::from_str(&env, "Multi-step reasoning for legal analysis"),
+        &AssetType::ReasoningChain,
+        &LicenseType::Perpetual,
+        &10_000_000i128,
+    );
 
     assert!(!client.has_license(&buyer, &asset_id));
 
@@ -581,15 +589,14 @@ fn test_has_no_license_by_default() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-    client
-        .list_asset(
-            &admin,
-            &String::from_str(&env, "Tool Pack"),
-            &String::from_str(&env, "Collection of agent tools"),
-            &AssetType::Tool,
-            &LicenseType::UsageBased,
-            &3_000_000i128,
-        );
+client.list_asset(
+        &admin,
+        &String::from_str(&env, "Tool Pack"),
+        &String::from_str(&env, "Collection of agent tools"),
+        &AssetType::Tool,
+        &LicenseType::UsageBased,
+        &3_000_000i128,
+    );
 
     assert!(!client.has_license(&stranger, &1));
 }
@@ -614,10 +621,7 @@ fn test_list_asset_rejects_zero_price() {
         &0i128,
     );
 
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        MarketplaceError::InvalidPrice
-    );
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::InvalidPrice);
 }
 
 #[test]
@@ -635,10 +639,7 @@ fn test_list_asset_rejects_negative_price() {
         &-1i128,
     );
 
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        MarketplaceError::InvalidPrice
-    );
+    assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::InvalidPrice);
 }
 
 #[test]
@@ -772,6 +773,34 @@ fn test_list_asset_accepts_description_of_exactly_2000_bytes() {
 }
 
 // TODO: add negative test for purchasing own asset (should panic)
+
+// Guard 4 — listing limit (MAX_ASSETS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_list_asset_rejects_when_limit_reached() {
+    let (env, admin, contract_id) = setup();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&ASSET_COUNT, &MAX_ASSETS);
+    });
+
+    let result = client.try_list_asset(
+        &admin,
+        &String::from_str(&env, "Over Limit"),
+        &String::from_str(&env, "Should be rejected"),
+        &AssetType::Prompt,
+        &LicenseType::Perpetual,
+        &1i128,
+    );
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::AssetLimitReached
+    );
+}
 
 // ── Upgrade mechanism ────────────────────────────────────────────────────────
 
@@ -965,6 +994,109 @@ fn test_open_auction_rejects_zero_capacity() {
     assert_eq!(
         result.unwrap_err().unwrap(),
         MarketplaceError::InvalidAuctionParams
+    );
+}
+
+// ── Escrow & Dispute Arbitration Tests ────────────────────────────────────────
+
+fn setup_purchase_scenario() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    MarketplaceContractClient<'static>,
+    Address,
+    u64,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let contract_id = env.register(MarketplaceContract, ());
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let (token_address, token_admin) = create_token(&env, &admin);
+    token_admin.mint(&buyer, &100_000_000);
+
+    let asset_id = client
+        .list_asset(
+            &seller,
+            &String::from_str(&env, "AI Dataset"),
+            &String::from_str(&env, "High quality reasoning chains"),
+            &AssetType::Dataset,
+            &LicenseType::Perpetual,
+            &10_000_000i128,
+        );
+
+    let license = client.purchase_license(&buyer, &asset_id, &token_address);
+
+    (
+        env,
+        admin,
+        seller,
+        buyer,
+        contract_id,
+        client,
+        token_address,
+        license.id,
+    )
+}
+
+#[test]
+fn test_escrow_created_on_purchase() {
+    let (_env, _admin, seller, buyer, _contract_id, client, token_address, license_id) =
+        setup_purchase_scenario();
+
+    let escrow = client.get_escrow(&license_id).expect("escrow should exist");
+    assert_eq!(escrow.license_id, license_id);
+    assert_eq!(escrow.buyer, buyer);
+    assert_eq!(escrow.seller, seller);
+    assert_eq!(escrow.token, token_address);
+    assert_eq!(escrow.amount, 10_000_000i128);
+    assert_eq!(escrow.status, EscrowStatus::Held);
+}
+
+#[test]
+fn test_escrow_hold_period_math() {
+    let (_env, _admin, _seller, _buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    let escrow = client.get_escrow(&license_id).unwrap();
+    assert_eq!(escrow.hold_until_ledger, escrow.created_ledger + 100);
+}
+
+#[test]
+fn test_escrow_release_success_after_hold_period() {
+    let (env, _admin, seller, _buyer, _contract_id, client, token_address, license_id) =
+        setup_purchase_scenario();
+
+    env.ledger().set_sequence_number(150);
+
+    let result = client.try_release_escrow(&license_id);
+    assert!(result.is_ok());
+
+    let escrow = client.get_escrow(&license_id).unwrap();
+    assert_eq!(escrow.status, EscrowStatus::Released);
+
+    let token_client = token::Client::new(&env, &token_address);
+    assert_eq!(token_client.balance(&seller), 10_000_000i128);
+}
+
+#[test]
+fn test_escrow_release_rejected_before_hold_period_expires() {
+    let (env, _admin, _seller, _buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    env.ledger().set_sequence_number(50);
+    let result = client.try_release_escrow(&license_id);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::DisputeWindowClosed.into()
     );
 }
 
@@ -1282,6 +1414,59 @@ fn test_reveal_after_window_closed_rejected() {
 }
 
 #[test]
+fn test_escrow_release_twice_fails() {
+    let (env, _admin, _seller, _buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    env.ledger().set_sequence_number(150);
+    client.release_escrow(&license_id);
+
+    let second = client.try_release_escrow(&license_id);
+    assert_eq!(
+        second.unwrap_err().unwrap(),
+        MarketplaceError::EscrowAlreadyReleased.into()
+    );
+}
+
+#[test]
+fn test_raise_dispute_freezes_release() {
+    let (env, _admin, _seller, buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    env.ledger().set_sequence_number(50);
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    assert_eq!(dispute_id, 1);
+    let escrow = client.get_escrow(&license_id).unwrap();
+    assert_eq!(escrow.status, EscrowStatus::Disputed);
+
+    let dispute = client.get_dispute(&dispute_id).unwrap();
+    assert_eq!(dispute.status, DisputeStatus::Open);
+    assert_eq!(dispute.buyer, buyer);
+    assert_eq!(dispute.evidence_hash, evidence_hash);
+}
+
+#[test]
+fn test_disputed_escrow_cannot_be_released() {
+    let (env, _admin, _seller, buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    env.ledger().set_sequence_number(50);
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    env.ledger().set_sequence_number(150);
+    let result = client.try_release_escrow(&license_id);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::EscrowDisputed.into()
+    );
+}
+
+#[test]
 fn test_settle_rejects_before_reveal_window_ends() {
     let (env, _seller, token, auction_id, contract_id) = auction_fixture(5, 1_000, 20);
     let client = MarketplaceContractClient::new(&env, &contract_id);
@@ -1342,6 +1527,34 @@ fn test_settle_rejects_after_settled() {
     assert_eq!(
         again.unwrap_err().unwrap(),
         MarketplaceError::AuctionPhaseError
+    );
+}
+
+#[test]
+fn test_raise_dispute_after_hold_period_fails() {
+    let (env, _admin, _seller, buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    env.ledger().set_sequence_number(150);
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let result = client.try_raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::DisputeWindowClosed.into()
+    );
+}
+
+#[test]
+fn test_only_buyer_can_raise_dispute() {
+    let (env, _admin, _seller, _buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    let impostor = Address::generate(&env);
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let result = client.try_raise_purchase_dispute(&impostor, &license_id, &evidence_hash);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::Unauthorized.into()
     );
 }
 
@@ -1651,4 +1864,271 @@ fn test_get_bid_returns_revealed_bid() {
     assert_eq!(bid.amount, 5_000);
     assert_eq!(bid.token, token);
     assert_eq!(bid.revealed_at, 114);
+}
+
+#[test]
+fn test_register_arbitrator() {
+    let (env, _admin, _seller, _buyer, _contract_id, client, _token_address, _license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    let arb2 = Address::generate(&env);
+
+    client.register_arbitrator(&arb1);
+    client.register_arbitrator(&arb2);
+
+    assert!(client.is_arbitrator(&arb1));
+    assert!(client.is_arbitrator(&arb2));
+
+    let arbs = client.get_arbitrators();
+    assert_eq!(arbs.len(), 2);
+}
+
+#[test]
+fn test_non_arbitrator_vote_fails() {
+    let (env, _admin, _seller, buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let fake_arb = Address::generate(&env);
+    let votes = vec![&env, (fake_arb, RefundDecision::FullRefund)];
+
+    let result = client.try_resolve_purchase_dispute(&dispute_id, &votes);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::NotArbitrator.into()
+    );
+}
+
+#[test]
+fn test_committee_vote_full_refund() {
+    let (env, _admin, seller, buyer, _contract_id, client, token_address, license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    let arb2 = Address::generate(&env);
+    let arb3 = Address::generate(&env);
+
+    client.register_arbitrator(&arb1);
+    client.register_arbitrator(&arb2);
+    client.register_arbitrator(&arb3);
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let votes = vec![
+        &env,
+        (arb1.clone(), RefundDecision::FullRefund),
+        (arb2.clone(), RefundDecision::FullRefund),
+        (arb3.clone(), RefundDecision::ReleaseToSeller),
+    ];
+
+    client.resolve_purchase_dispute(&dispute_id, &votes);
+
+    let escrow = client.get_escrow(&license_id).unwrap();
+    assert_eq!(escrow.status, EscrowStatus::Resolved);
+
+    let dispute = client.get_dispute(&dispute_id).unwrap();
+    assert_eq!(dispute.status, DisputeStatus::Resolved);
+    assert_eq!(dispute.decision, RefundDecision::FullRefund);
+
+    let token_client = token::Client::new(&env, &token_address);
+    assert_eq!(token_client.balance(&buyer), 100_000_000i128);
+    assert_eq!(token_client.balance(&seller), 0i128);
+}
+
+#[test]
+fn test_committee_vote_release_to_seller() {
+    let (env, _admin, seller, buyer, _contract_id, client, token_address, license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    let arb2 = Address::generate(&env);
+    let arb3 = Address::generate(&env);
+
+    client.register_arbitrator(&arb1);
+    client.register_arbitrator(&arb2);
+    client.register_arbitrator(&arb3);
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let votes = vec![
+        &env,
+        (arb1.clone(), RefundDecision::ReleaseToSeller),
+        (arb2.clone(), RefundDecision::ReleaseToSeller),
+        (arb3.clone(), RefundDecision::FullRefund),
+    ];
+
+    client.resolve_purchase_dispute(&dispute_id, &votes);
+
+    let token_client = token::Client::new(&env, &token_address);
+    assert_eq!(token_client.balance(&seller), 10_000_000i128);
+    assert_eq!(token_client.balance(&buyer), 90_000_000i128);
+}
+
+#[test]
+fn test_committee_vote_partial_refund_math() {
+    let (env, _admin, seller, buyer, _contract_id, client, token_address, license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    let arb2 = Address::generate(&env);
+    let arb3 = Address::generate(&env);
+
+    client.register_arbitrator(&arb1);
+    client.register_arbitrator(&arb2);
+    client.register_arbitrator(&arb3);
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let votes = vec![
+        &env,
+        (arb1.clone(), RefundDecision::PartialRefund(5000)),
+        (arb2.clone(), RefundDecision::PartialRefund(5000)),
+        (arb3.clone(), RefundDecision::FullRefund),
+    ];
+
+    client.resolve_purchase_dispute(&dispute_id, &votes);
+
+    let token_client = token::Client::new(&env, &token_address);
+    assert_eq!(token_client.balance(&buyer), 95_000_000i128);
+    assert_eq!(token_client.balance(&seller), 5_000_000i128);
+}
+
+#[test]
+fn test_committee_vote_partial_refund_75_percent() {
+    let (env, _admin, seller, buyer, _contract_id, client, token_address, license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    let arb2 = Address::generate(&env);
+    let arb3 = Address::generate(&env);
+
+    client.register_arbitrator(&arb1);
+    client.register_arbitrator(&arb2);
+    client.register_arbitrator(&arb3);
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let votes = vec![
+        &env,
+        (arb1.clone(), RefundDecision::PartialRefund(7500)),
+        (arb2.clone(), RefundDecision::PartialRefund(7500)),
+        (arb3.clone(), RefundDecision::PartialRefund(7500)),
+    ];
+
+    client.resolve_purchase_dispute(&dispute_id, &votes);
+
+    let token_client = token::Client::new(&env, &token_address);
+    assert_eq!(token_client.balance(&buyer), 97_500_000i128);
+    assert_eq!(token_client.balance(&seller), 2_500_000i128);
+}
+
+#[test]
+fn test_committee_vote_tie_break() {
+    let (env, _admin, seller, buyer, _contract_id, client, token_address, license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    let arb2 = Address::generate(&env);
+
+    client.register_arbitrator(&arb1);
+    client.register_arbitrator(&arb2);
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let votes = vec![
+        &env,
+        (arb1.clone(), RefundDecision::FullRefund),
+        (arb2.clone(), RefundDecision::ReleaseToSeller),
+    ];
+
+    client.resolve_purchase_dispute(&dispute_id, &votes);
+
+    let token_client = token::Client::new(&env, &token_address);
+    assert_eq!(token_client.balance(&buyer), 95_000_000i128);
+    assert_eq!(token_client.balance(&seller), 5_000_000i128);
+}
+
+#[test]
+fn test_resolve_dispute_twice_fails() {
+    let (env, _admin, _seller, buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    client.register_arbitrator(&arb1);
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let votes = vec![&env, (arb1.clone(), RefundDecision::FullRefund)];
+    client.resolve_purchase_dispute(&dispute_id, &votes);
+
+    let second = client.try_resolve_purchase_dispute(&dispute_id, &votes);
+    assert_eq!(
+        second.unwrap_err().unwrap(),
+        MarketplaceError::DisputeAlreadyResolved.into()
+    );
+}
+
+#[test]
+fn test_resolve_nonexistent_dispute_fails() {
+    let (env, _admin, _seller, _buyer, _contract_id, client, _token_address, _license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    client.register_arbitrator(&arb1);
+
+    let votes = vec![&env, (arb1.clone(), RefundDecision::FullRefund)];
+    let result = client.try_resolve_purchase_dispute(&999u64, &votes);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::DisputeNotFound.into()
+    );
+}
+
+#[test]
+fn test_release_nonexistent_escrow_fails() {
+    let (env, _admin, _seller, _buyer, _contract_id, client, _token_address, _license_id) =
+        setup_purchase_scenario();
+
+    env.ledger().set_sequence_number(150);
+    let result = client.try_release_escrow(&999u64);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::EscrowNotFound.into()
+    );
+}
+
+#[test]
+fn test_invalid_refund_bps_fails() {
+    let (env, _admin, _seller, buyer, _contract_id, client, _token_address, license_id) =
+        setup_purchase_scenario();
+
+    let arb1 = Address::generate(&env);
+    client.register_arbitrator(&arb1);
+
+    let evidence_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client
+        .raise_purchase_dispute(&buyer, &license_id, &evidence_hash);
+
+    let votes = vec![&env, (arb1.clone(), RefundDecision::PartialRefund(15000))];
+    let result = client.try_resolve_purchase_dispute(&dispute_id, &votes);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        MarketplaceError::InvalidRefundBps.into()
+    );
 }

@@ -53,27 +53,54 @@ pub enum MarketplaceError {
     /// Arithmetic overflow or underflow occurred.
     ArithmeticError = 15,
 
+    /// Escrow funds have already been released to seller.
+    EscrowAlreadyReleased = 16,
+
+    /// Dispute window has closed for this escrow.
+    DisputeWindowClosed = 17,
+
+    /// Caller or voter is not a registered arbitrator.
+    NotArbitrator = 18,
+
+    /// Escrow hold not found.
+    EscrowNotFound = 19,
+
+    /// Escrow is frozen by an open dispute.
+    EscrowDisputed = 20,
+
+    /// Dispute not found.
+    DisputeNotFound = 21,
+
+    /// Dispute has already been resolved.
+    DisputeAlreadyResolved = 22,
+
+    /// Invalid refund basis points (must be between 0 and 10000).
+    InvalidRefundBps = 23,
+
+    /// No valid arbitrator votes provided.
+    NoArbitratorVotes = 24,
+
     /// Auction does not exist.
-    AuctionNotFound = 16,
+    AuctionNotFound = 25,
 
     /// Auction is not in the phase required by the operation.
-    AuctionPhaseError = 17,
+    AuctionPhaseError = 26,
 
     /// Bidder has not committed a bid for this auction.
-    BidNotCommitted = 18,
+    BidNotCommitted = 27,
 
     /// Revealed bid does not match the committed bid hash.
-    CommitmentMismatch = 19,
+    CommitmentMismatch = 28,
 
     /// Bid amount is invalid (below reserve or non-positive).
-    InvalidBidAmount = 20,
+    InvalidBidAmount = 29,
 
     /// Auction parameters are invalid (e.g. zero capacity or duration).
-    InvalidAuctionParams = 21,
+    InvalidAuctionParams = 30,
 
     /// Bidder has already revealed a bid for this auction.
-    BidAlreadyRevealed = 22,
+    BidAlreadyRevealed = 31,
 
     /// Reveal uses a different payment token than the auction escrow.
-    TokenMismatch = 23,
+    TokenMismatch = 32,
 }
