@@ -79,4 +79,28 @@ pub enum MarketplaceError {
 
     /// No valid arbitrator votes provided.
     NoArbitratorVotes = 24,
+
+    /// Auction does not exist.
+    AuctionNotFound = 25,
+
+    /// Auction is not in the phase required by the operation.
+    AuctionPhaseError = 26,
+
+    /// Bidder has not committed a bid for this auction.
+    BidNotCommitted = 27,
+
+    /// Revealed bid does not match the committed bid hash.
+    CommitmentMismatch = 28,
+
+    /// Bid amount is invalid (below reserve or non-positive).
+    InvalidBidAmount = 29,
+
+    /// Auction parameters are invalid (e.g. zero capacity or duration).
+    InvalidAuctionParams = 30,
+
+    /// Bidder has already revealed a bid for this auction.
+    BidAlreadyRevealed = 31,
+
+    /// Reveal uses a different payment token than the auction escrow.
+    TokenMismatch = 32,
 }

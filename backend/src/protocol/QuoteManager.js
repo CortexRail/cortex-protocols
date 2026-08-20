@@ -75,8 +75,38 @@ function validateQuote(quote) {
   return true;
 }
 
+/**
+ * Route a listing to the appropriate pricing flow.
+ *
+ * Capacity-constrained assets (those with a positive `capacity` field, i.e.
+ * scarce high-demand streams) are routed into the sealed-bid auction flow;
+ * everything else gets the direct signed-quote flow.
+ *
+ * @param {object} asset - Asset row (must expose `capacity` and `price`).
+ * @returns {{ mode: "auction"|"quote", reason: string }}
+ */
+function routeAsset(asset) {
+  if (asset && Number(asset.capacity) > 0) {
+    return {
+      mode: "auction",
+      reason: "capacity-constrained",
+    };
+  }
+  return { mode: "quote", reason: "first-come" };
+}
+
+/**
+ * True when the asset should be priced via a sealed-bid auction instead of
+ * a direct quote.
+ */
+function shouldAuction(asset) {
+  return routeAsset(asset).mode === "auction";
+}
+
 module.exports = {
   generateQuote,
   validateQuote,
+  routeAsset,
+  shouldAuction,
   _pendingQuotes: pendingQuotes, // Exported for testing/debugging
 };

@@ -46,6 +46,7 @@ function buildAsset(overrides = {}) {
     usageCount: 0,
     isActive: true,
     tags: ["test"],
+    capacity: 0,
     ...overrides,
   };
 }

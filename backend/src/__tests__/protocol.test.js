@@ -1,3 +1,4 @@
+const request = require("supertest");
 const app = require("../app");
 const { Keypair } = require("@stellar/stellar-sdk");
 
@@ -185,6 +186,98 @@ describe("Agent Payment Protocol - StreamMonitor (SSE alerts)", () => {
     const calls = mockRes.write.mock.calls.map(c => c[0]);
     const lowBalanceCalls = calls.filter(c => c.includes("LOW_BALANCE"));
     expect(lowBalanceCalls).toHaveLength(0);
+  });
+});
+
+describe("Agent Payment Protocol - Auction Routing", () => {
+  it("routes capacity-constrained assets into the auction flow on handshake", async () => {
+    const asset = buildAsset({
+      id: 200,
+      owner: OWNER_B,
+      price: 1000,
+      capacity: 5,
+    });
+    await assetRepository.create(asset);
+
+    const res = await request(app)
+      .post("/api/v1/protocol/handshake")
+      .send({ publicKey: OWNER_A, assetId: 200 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe("auction");
+    expect(res.body.reason).toBe("capacity-constrained");
+    expect(res.body.assetId).toBe(200);
+    expect(res.body.quote).toBeUndefined();
+  });
+
+  it("keeps first-come assets on the direct quote flow", async () => {
+    const asset = buildAsset({ id: 201, owner: OWNER_B, price: 1000 });
+    await assetRepository.create(asset);
+
+    const res = await request(app)
+      .post("/api/v1/protocol/handshake")
+      .send({ publicKey: OWNER_A, assetId: 201 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe("quote");
+    expect(res.body.quote).toBeDefined();
+  });
+
+  it("refuses direct quotes for capacity-constrained assets", async () => {
+    const asset = buildAsset({
+      id: 202,
+      owner: OWNER_B,
+      price: 1000,
+      capacity: 3,
+    });
+    await assetRepository.create(asset);
+
+    const res = await request(app)
+      .post("/api/v1/protocol/quote")
+      .send({ publicKey: OWNER_A, assetId: 202 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.mode).toBe("auction");
+  });
+
+  it("returns engine state for a tracked auction and 404 otherwise", async () => {
+    const AuctionEngine = require("../protocol/AuctionEngine");
+    AuctionEngine.engine.track(300, {
+      phase: "Commit",
+      openLedger: 100,
+      durationLedgers: 10,
+      revealEnd: null,
+    });
+
+    const res = await request(app).get("/api/v1/protocol/auctions/300");
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(300);
+    expect(res.body.phase).toBe("Commit");
+
+    const missing = await request(app).get("/api/v1/protocol/auctions/9999");
+    expect(missing.status).toBe(404);
+  });
+
+  it("ticks a tracked auction through its transitions via the API", async () => {
+    const AuctionEngine = require("../protocol/AuctionEngine");
+    const sseUrl = "/api/v1/protocol/auctions/301/events";
+
+    // Read the auction id the SSE handler may emit for.
+    AuctionEngine.engine.track(301, {
+      phase: "Commit",
+      openLedger: 100,
+      durationLedgers: 10,
+      revealEnd: null,
+    });
+    AuctionEngine.engine._getLedgerSequence = async () => 110;
+
+    const res = await request(app).post("/api/v1/protocol/auctions/301/tick");
+    expect(res.status).toBe(200);
+    expect(res.body.transition).toBe("begin_reveal");
+
+    const status = await request(app).get("/api/v1/protocol/auctions/301");
+    expect(status.body.phase).toBe("Reveal");
+    expect(sseUrl).toBeDefined();
   });
 });
 

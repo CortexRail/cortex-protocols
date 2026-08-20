@@ -69,6 +69,12 @@ END $$;
 
 -- 4 ── Atomic swap ───────────────────────────────────────────────────────────
 ALTER TABLE IF EXISTS events_log RENAME TO events_log_old;
+-- Indexes keep their names when their table is renamed, so free the names
+-- before re-creating them on the partitioned table.
+ALTER INDEX IF EXISTS idx_events_log_ledger RENAME TO idx_events_log_ledger_old;
+ALTER INDEX IF EXISTS idx_events_log_contract RENAME TO idx_events_log_contract_old;
+ALTER INDEX IF EXISTS idx_events_log_topic RENAME TO idx_events_log_topic_old;
+ALTER INDEX IF EXISTS ux_events_log_unique_event RENAME TO ux_events_log_unique_event_old;
 ALTER TABLE events_log_partitioned RENAME TO events_log;
 
 -- 5 ── Drop the old table ────────────────────────────────────────────────────

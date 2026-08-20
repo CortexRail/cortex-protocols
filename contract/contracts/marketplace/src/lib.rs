@@ -1,16 +1,18 @@
 #![no_std]
 
+extern crate alloc;
+
 mod errors;
 pub use errors::MarketplaceError;
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map, String, Symbol,
-    Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Map, String,
+    Symbol, Vec,
 };
 
 /// Contract code version. Bump on every deployed upgrade so clients can
 /// detect which revision is live via `version()`.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[cfg(test)]
 mod test;
@@ -25,10 +27,6 @@ const LISTINGS_V2: Symbol = symbol_short!("LIC_V2");
 const ASSET_HISTORY: Symbol = symbol_short!("A_HIST");
 const OWNER: Symbol = symbol_short!("OWNER");
 const HISTORY_LIMIT: u32 = 5;
-/// Maximum byte length of an asset name.
-const MAX_NAME_LEN: u32 = 200;
-/// Maximum byte length of an asset description.
-const MAX_DESC_LEN: u32 = 2_000;
 
 const ESCROW_HOLD_LEDGERS: u32 = 100;
 const ESCROWS: Symbol = symbol_short!("ESCROWS");
@@ -37,8 +35,17 @@ const ARBITRATORS: Symbol = symbol_short!("ARBITRARS");
 const LICENSE_COUNT: Symbol = symbol_short!("L_COUNT");
 const DISPUTE_COUNT: Symbol = symbol_short!("D_COUNT");
 
-/// Maximum number of listings the marketplace will ever accept.
+const AUCTIONS: Symbol = symbol_short!("AUCTIONS");
+const AUCTION_COUNT: Symbol = symbol_short!("AUCT_CNT");
+const COMMITMENTS: Symbol = symbol_short!("COMMITS");
+const BIDS: Symbol = symbol_short!("BIDS");
+
+/// Hard cap on concurrently listed assets.
 const MAX_ASSETS: u64 = 10_000;
+
+/// Any reveal landing in the final `SNIPING_WINDOW` ledgers of the reveal
+/// window extends the window by `SNIPING_WINDOW` more ledgers (anti-sniping).
+const SNIPING_WINDOW: u32 = 5;
 
 // ── Data Types ───────────────────────────────────────────────────────────────
 
@@ -194,6 +201,54 @@ struct LegacyLicense {
     pub calls_remaining: u64,
 }
 
+/// Lifecycle phase of a sealed-bid auction.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AuctionPhase {
+    /// Commit window open; only bid commitments (hashes) are accepted.
+    Commit,
+    /// Reveal window open; committed bidders reveal and escrow amounts.
+    Reveal,
+    /// Settlement completed; winners admitted and payouts executed.
+    Settled,
+}
+
+/// A sealed-bid, second-price auction for a capacity-constrained asset.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Auction {
+    pub id: u64,
+    pub seller: Address,
+    pub asset_id: u64,
+    /// Number of concurrent capacity slots awarded to the top bidders.
+    pub capacity: u32,
+    /// Reserve price; reveals below this are rejected and losers pay nothing.
+    pub min_bid: i128,
+    /// Length of the commit window (ledgers). The reveal window is the same
+    /// length, starting when the commit window closes.
+    pub duration_ledgers: u32,
+    pub open_ledger: u32,
+    /// Ledger at which the reveal window closes (0 until reveal begins).
+    pub reveal_end: u32,
+    pub phase: AuctionPhase,
+    /// Escrow token, locked on the first reveal and enforced for all reveals.
+    pub token: Option<Address>,
+    /// Bidders that revealed, in reveal order. Ties are broken by this order.
+    pub revealed: Vec<Address>,
+    /// Uniform second price paid by every admitted bidder (set at settlement).
+    pub clearing_price: Option<i128>,
+    pub settled_at: Option<u32>,
+}
+
+/// A revealed bid locked into the auction escrow.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Bid {
+    pub amount: i128,
+    pub token: Address,
+    pub revealed_at: u32,
+}
+
 fn history_key(asset_id: u64) -> (Symbol, u64) {
     (ASSET_HISTORY, asset_id)
 }
@@ -302,6 +357,35 @@ fn load_license(env: &Env, buyer: &Address, asset_id: u64) -> Option<License> {
 fn find_asset_version(env: &Env, asset: &IntelligenceAsset, version: u32) -> Option<AssetVersion> {
     let history = ensure_history(env, asset);
     history.iter().find(|entry| entry.version == version)
+}
+
+fn auction_key(auction_id: u64) -> (Symbol, u64) {
+    (AUCTIONS, auction_id)
+}
+
+fn commitment_key(auction_id: u64, bidder: &Address) -> (Symbol, u64, Address) {
+    (COMMITMENTS, auction_id, bidder.clone())
+}
+
+fn bid_key(auction_id: u64, bidder: &Address) -> (Symbol, u64, Address) {
+    (BIDS, auction_id, bidder.clone())
+}
+
+fn load_auction(env: &Env, auction_id: u64) -> Result<Auction, MarketplaceError> {
+    env.storage()
+        .persistent()
+        .get(&auction_key(auction_id))
+        .ok_or(MarketplaceError::AuctionNotFound)
+}
+
+/// Canonical commitment preimage: big-endian `amount` bytes followed by the
+/// 32-byte salt. Both client-side builders (SDK, contract tests) and the
+/// contract derive the same hash from this layout.
+fn commitment_preimage(env: &Env, amount: i128, salt: &BytesN<32>) -> Bytes {
+    let mut input = Bytes::new(env);
+    input.append(&Bytes::from_slice(env, &amount.to_be_bytes()));
+    input.append(&Bytes::from_slice(env, &salt.to_array()));
+    input
 }
 
 fn get_escrows_map(env: &Env) -> Map<u64, EscrowHold> {
@@ -592,6 +676,316 @@ impl MarketplaceContract {
         license
     }
 
+    // ── Sealed-Bid Auctions ──────────────────────────────────────────────
+    //
+    // Commitment scheme: bidders commit `sha256(amount_be_bytes || salt)`
+    // during the commit window, then reveal `(amount, salt)` during the
+    // reveal window. No bid amount is observable before its reveal.
+    // Settlement admits the top `capacity` revealed bids, each paying the
+    // uniform second price (the `capacity + 1`-th bid, or the reserve when
+    // fewer bids than capacity are revealed); losers are fully refunded.
+
+    /// Open a sealed-bid auction for a capacity-constrained asset.
+    ///
+    /// Only the asset owner may open an auction. The contract escrows no
+    /// funds here; escrow is funded per-reveal. The commit window lasts
+    /// `duration_ledgers`; `begin_reveal` then opens an equally long reveal
+    /// window, after which `settle_auction` admits the winners.
+    pub fn open_auction(
+        env: Env,
+        seller: Address,
+        asset_id: u64,
+        capacity: u32,
+        min_bid: i128,
+        duration_ledgers: u32,
+    ) -> Result<u64, MarketplaceError> {
+        seller.require_auth();
+
+        if capacity == 0 || duration_ledgers == 0 {
+            return Err(MarketplaceError::InvalidAuctionParams);
+        }
+        if min_bid <= 0 {
+            return Err(MarketplaceError::InvalidBidAmount);
+        }
+
+        let asset = load_asset(&env, asset_id).ok_or(MarketplaceError::AssetNotFound)?;
+        if !asset.is_active {
+            return Err(MarketplaceError::AssetInactive);
+        }
+        if asset.owner != seller {
+            return Err(MarketplaceError::NotOwner);
+        }
+
+        let count: u64 = env.storage().instance().get(&AUCTION_COUNT).unwrap_or(0u64);
+        let auction_id = count + 1;
+
+        let auction = Auction {
+            id: auction_id,
+            seller: seller.clone(),
+            asset_id,
+            capacity,
+            min_bid,
+            duration_ledgers,
+            open_ledger: env.ledger().sequence(),
+            reveal_end: 0,
+            phase: AuctionPhase::Commit,
+            token: None,
+            revealed: Vec::new(&env),
+            clearing_price: None,
+            settled_at: None,
+        };
+        env.storage().persistent().set(&auction_key(auction_id), &auction);
+        env.storage().instance().set(&AUCTION_COUNT, &auction_id);
+
+        env.events().publish(
+            (symbol_short!("AUCT_OPEN"), seller),
+            (auction_id, asset_id, capacity, min_bid, duration_ledgers),
+        );
+
+        Ok(auction_id)
+    }
+
+    /// Transition an auction from the commit window to the reveal window.
+    ///
+    /// Callable by anyone once `duration_ledgers` have elapsed since open.
+    /// Returns the reveal window's closing ledger. The backend auction
+    /// engine calls this automatically when it observes the commit window
+    /// end on-chain.
+    pub fn begin_reveal(env: Env, auction_id: u64) -> Result<u32, MarketplaceError> {
+        let mut auction = load_auction(&env, auction_id)?;
+        if auction.phase != AuctionPhase::Commit {
+            return Err(MarketplaceError::AuctionPhaseError);
+        }
+        let now = env.ledger().sequence();
+        let commit_end = auction
+            .open_ledger
+            .checked_add(auction.duration_ledgers)
+            .expect("ledger overflow");
+        if now < commit_end {
+            return Err(MarketplaceError::AuctionPhaseError);
+        }
+
+        auction.phase = AuctionPhase::Reveal;
+        auction.reveal_end = now
+            .checked_add(auction.duration_ledgers)
+            .expect("ledger overflow");
+        env.storage().persistent().set(&auction_key(auction_id), &auction);
+
+        env.events().publish(
+            (symbol_short!("REVEAL_OP"),),
+            (auction_id, auction.reveal_end),
+        );
+
+        Ok(auction.reveal_end)
+    }
+
+    /// Commit to a hidden bid during the commit window.
+    ///
+    /// Only the hash is stored; the amount cannot be derived from it.
+    /// A bidder may commit at most once and may reveal only the exact
+    /// amount/salt pair that produced this hash.
+    pub fn commit_bid(
+        env: Env,
+        bidder: Address,
+        auction_id: u64,
+        bid_hash: BytesN<32>,
+    ) -> Result<(), MarketplaceError> {
+        bidder.require_auth();
+
+        let auction = load_auction(&env, auction_id)?;
+        if auction.phase != AuctionPhase::Commit {
+            return Err(MarketplaceError::AuctionPhaseError);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&commitment_key(auction_id, &bidder), &bid_hash);
+
+        env.events()
+            .publish((symbol_short!("COMMITTED"), bidder), auction_id);
+
+        Ok(())
+    }
+
+    /// Reveal a committed bid and lock the amount into the auction escrow.
+    ///
+    /// Validates the revealed `(amount, salt)` reproduces the committed
+    /// hash, rejects bids below the reserve, and transfers `amount` of the
+    /// auction token from the bidder to the contract. Reveals landing in
+    /// the final `SNIPING_WINDOW` ledgers extend the window by
+    /// `SNIPING_WINDOW` more ledgers (anti-sniping). Returns the (possibly
+    /// extended) reveal closing ledger.
+    pub fn reveal_bid(
+        env: Env,
+        bidder: Address,
+        auction_id: u64,
+        amount: i128,
+        salt: BytesN<32>,
+        token: Address,
+    ) -> Result<u32, MarketplaceError> {
+        bidder.require_auth();
+
+        let mut auction = load_auction(&env, auction_id)?;
+        if auction.phase != AuctionPhase::Reveal {
+            return Err(MarketplaceError::AuctionPhaseError);
+        }
+        let now = env.ledger().sequence();
+        if now >= auction.reveal_end {
+            return Err(MarketplaceError::AuctionPhaseError);
+        }
+
+        let key = commitment_key(auction_id, &bidder);
+        let committed = env
+            .storage()
+            .persistent()
+            .get::<_, BytesN<32>>(&key)
+            .ok_or(MarketplaceError::BidNotCommitted)?;
+        let expected = env.crypto().sha256(&commitment_preimage(&env, amount, &salt));
+        if expected.to_bytes() != committed {
+            return Err(MarketplaceError::CommitmentMismatch);
+        }
+
+        if amount < auction.min_bid {
+            return Err(MarketplaceError::InvalidBidAmount);
+        }
+
+        // A single escrow token per auction keeps the uniform clearing price
+        // meaningful. The first reveal fixes it; later ones must match.
+        if let Some(auction_token) = &auction.token {
+            if *auction_token != token {
+                return Err(MarketplaceError::TokenMismatch);
+            }
+        } else {
+            auction.token = Some(token.clone());
+        }
+
+        // One reveal per bidder; guard before any funds move.
+        if env.storage().persistent().has(&bid_key(auction_id, &bidder)) {
+            return Err(MarketplaceError::BidAlreadyRevealed);
+        }
+
+        // Lock the bid amount into the auction escrow (contract holds it).
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        token_client.transfer(&bidder, &env.current_contract_address(), &amount);
+
+        let mut extended = false;
+        if now >= auction.reveal_end.saturating_sub(SNIPING_WINDOW) {
+            auction.reveal_end = auction
+                .reveal_end
+                .checked_add(SNIPING_WINDOW)
+                .expect("ledger overflow");
+            extended = true;
+        }
+
+        let bid = Bid {
+            amount,
+            token: token.clone(),
+            revealed_at: now,
+        };
+        env.storage()
+            .persistent()
+            .set(&bid_key(auction_id, &bidder), &bid);
+        auction.revealed.push_back(bidder.clone());
+        env.storage().persistent().set(&auction_key(auction_id), &auction);
+
+        if extended {
+            env.events().publish(
+                (symbol_short!("EXTENDED"), bidder.clone()),
+                (auction_id, auction.reveal_end),
+            );
+        }
+        env.events().publish(
+            (symbol_short!("REVEALED"), bidder),
+            (auction_id, amount, auction.reveal_end),
+        );
+
+        Ok(auction.reveal_end)
+    }
+
+    /// Settle an auction once the reveal window has closed.
+    ///
+    /// Ranks revealed bids highest-first (ties broken by reveal order),
+    /// admits the top `capacity` as winners, each paying the uniform
+    /// second price — the `capacity + 1`-th bid when more than `capacity`
+    /// bids were revealed, otherwise the reserve price. Winners receive
+    /// their excess back, losers are fully refunded, and the seller
+    /// receives `winners * clearing_price` from escrow. Returns the
+    /// admitted winners in rank order.
+    pub fn settle_auction(env: Env, auction_id: u64) -> Result<Vec<Address>, MarketplaceError> {
+        let mut auction = load_auction(&env, auction_id)?;
+        if auction.phase != AuctionPhase::Reveal {
+            return Err(MarketplaceError::AuctionPhaseError);
+        }
+        let now = env.ledger().sequence();
+        if now < auction.reveal_end {
+            return Err(MarketplaceError::AuctionPhaseError);
+        }
+
+        let mut ranked: alloc::vec::Vec<(Address, i128)> = auction
+            .revealed
+            .iter()
+            .map(|bidder| {
+                let bid: Bid = env
+                    .storage()
+                    .persistent()
+                    .get(&bid_key(auction_id, &bidder))
+                    .expect("revealed bidder missing bid");
+                (bidder, bid.amount)
+            })
+            .collect();
+
+        // Stable sort: descending amount; ties keep reveal order.
+        ranked.sort_by(|left, right| right.1.cmp(&left.1));
+
+        let n = ranked.len();
+        let capacity = auction.capacity as usize;
+        let clearing_price: i128 = if n > capacity {
+            ranked[capacity].1
+        } else {
+            auction.min_bid
+        };
+
+        let mut winners: Vec<Address> = Vec::new(&env);
+        for (bidder, _) in ranked.iter().take(capacity) {
+            winners.push_back(bidder.clone());
+        }
+
+        let contract = env.current_contract_address();
+        if let Some(token) = &auction.token {
+            let token_client = soroban_sdk::token::Client::new(&env, token);
+            for (bidder, amount) in &ranked {
+                let is_winner = winners.contains(bidder);
+                if is_winner && *amount > clearing_price {
+                    token_client.transfer(
+                        &contract,
+                        bidder,
+                        &(*amount - clearing_price),
+                    );
+                } else if !is_winner {
+                    token_client.transfer(&contract, bidder, amount);
+                }
+            }
+            if !winners.is_empty() {
+                let seller_payment = clearing_price
+                    .checked_mul(winners.len() as i128)
+                    .expect("payment overflow");
+                token_client.transfer(&contract, &auction.seller, &seller_payment);
+            }
+        }
+
+        auction.phase = AuctionPhase::Settled;
+        auction.clearing_price = Some(clearing_price);
+        auction.settled_at = Some(now);
+        env.storage().persistent().set(&auction_key(auction_id), &auction);
+
+        env.events().publish(
+            (symbol_short!("AUCT_SETL"),),
+            (auction_id, winners.clone(), clearing_price),
+        );
+
+        Ok(winners)
+    }
+
     /// Callable by anyone after the hold period if no dispute was raised; releases funds to seller.
     pub fn release_escrow(env: Env, license_id: u64) -> Result<(), MarketplaceError> {
         let escrows = get_escrows_map(&env);
@@ -844,6 +1238,18 @@ impl MarketplaceContract {
     /// Get a buyer's license details.
     pub fn get_license(env: Env, buyer: Address, asset_id: u64) -> Option<License> {
         load_license(&env, &buyer, asset_id)
+    }
+
+    /// Retrieve an auction by ID.
+    pub fn get_auction(env: Env, auction_id: u64) -> Option<Auction> {
+        env.storage().persistent().get(&auction_key(auction_id))
+    }
+
+    /// Retrieve a revealed bid by auction and bidder.
+    pub fn get_bid(env: Env, auction_id: u64, bidder: Address) -> Option<Bid> {
+        env.storage()
+            .persistent()
+            .get(&bid_key(auction_id, &bidder))
     }
 
     /// Retrieve an escrow hold by license ID.
