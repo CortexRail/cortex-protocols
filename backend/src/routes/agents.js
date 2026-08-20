@@ -13,6 +13,7 @@ const {
   getLeaderboard,
   CAPABILITIES,
 } = require("../services/agentService");
+const { publicReadLimiter, writeLimiter } = require("../middleware/rateLimiter");
 
 const router = Router();
 
@@ -22,6 +23,7 @@ const router = Router();
  */
 router.get(
   "/",
+  publicReadLimiter,
   [
     query("capability").optional().isIn(CAPABILITIES),
     query("minReputation").optional().isInt({ min: 0, max: 10000 }),
@@ -47,7 +49,7 @@ router.get(
 /**
  * GET /api/v1/agents/capabilities/list
  */
-router.get("/capabilities/list", (_req, res) => {
+router.get("/capabilities/list", publicReadLimiter, (_req, res) => {
   res.json({ capabilities: CAPABILITIES });
 });
 
@@ -57,6 +59,7 @@ router.get("/capabilities/list", (_req, res) => {
  */
 router.get(
   "/leaderboard",
+  publicReadLimiter,
   [query("sortBy").optional().isIn(["reputation", "activity", "earnings"]), query("limit").optional().isInt({ min: 1, max: 100 })],
   validate,
   (req, res) => {
@@ -75,6 +78,7 @@ router.get(
  */
 router.get(
   "/:id",
+  publicReadLimiter,
   [param("id").isInt({ min: 1 })],
   validate,
   asyncHandler(async (req, res) => {
@@ -92,6 +96,7 @@ router.get(
  */
 router.post(
   "/",
+  writeLimiter,
   [
     body("id").isInt({ min: 1 }),
     body("owner")
@@ -117,6 +122,7 @@ router.post(
  */
 router.get(
   "/:id/reputation-history",
+  publicReadLimiter,
   [param("id").isInt({ min: 1 }), query("limit").optional().isInt({ min: 1, max: 100 })],
   validate,
   (req, res) => {
@@ -139,6 +145,7 @@ router.get(
  */
 router.post(
   "/:id/reputation",
+  writeLimiter,
   [
     param("id").isInt({ min: 1 }),
     body("score").isInt({ min: 0, max: 100 }),
@@ -161,6 +168,7 @@ router.post(
  */
 router.get(
   "/:id/activity",
+  publicReadLimiter,
   [
     param("id").isInt({ min: 1 }),
     query("page").optional().isInt({ min: 1 }),

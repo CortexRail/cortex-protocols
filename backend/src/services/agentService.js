@@ -16,38 +16,19 @@ const CAPABILITIES = [
 
 const ACTIVITY_TYPES = ["AGENT_REGISTERED", "ASSET_LISTED", "LICENSE_PURCHASED", "STREAM_OPENED", "STREAM_CLOSED", "REPUTATION_VOTED"];
 
-function registerAgent(agentData) {
-  const {
-    id,
-    owner,
-    name,
-    description,
-    capabilities = [],
-    reputation = 5000,
-    totalTransactions = 0,
-    isActive = true,
-    registeredAt,
-  } = agentData;
+const agentRepository = require("../repositories/agentRepository");
+const agentBanRepository = require("../repositories/agentBanRepository");
+const disputeRepository = require("../repositories/disputeRepository");
+const agentStakeRepository = require("../repositories/agentStakeRepository");
+const reputationEngine = require("./reputationEngine");
 
-  const agent = {
-    id,
-    owner,
-    name,
-    description,
-    capabilities,
-    reputation,
-    totalTransactions,
-    isActive,
-    registeredAt: registeredAt || Date.now(),
-    indexedAt: Date.now(),
-  };
 
 /**
  * Index an agent identity after on-chain registration (upsert by id).
  */
 async function registerAgent(agentData) {
   if (await agentBanRepository.isBanned(agentData.id)) {
-    throw bannedError(agentData.id);
+    throw new Error(`Agent ${agentData.id} is banned`);
   }
   return agentRepository.create(agentData);
 }
@@ -72,7 +53,7 @@ async function listAgents({
 }
 
 /**
- * Get a single agent by ID (active or not — callers inspect isActive).
+ * Get a single agent by ID (active or not ΓÇö callers inspect isActive).
  */
 async function getAgent(id) {
   const agent = await agentRepository.findById(id);
@@ -114,7 +95,7 @@ async function getReputationTimeline(id, { points = 30, nowMs = Date.now() } = {
   };
 }
 
-function getAgent(id) {
+function _getAgentSync(id) {
   return agentsIndex.get(String(id)) || null;
 }
 
@@ -127,7 +108,7 @@ function submitReputation(agentId, score, voter) {
   history.push({ score, voter, timestamp: Date.now() });
   
   // Update agent's reputation (simple average for now; use weighted in production)
-  const agent = getAgent(agentId);
+  const agent = _getAgentSync(agentId);
   if (agent) {
     const avg = Math.round(history.reduce((sum, h) => sum + h.score, 0) / history.length * 100);
     agent.reputation = Math.min(10000, Math.max(0, avg));
@@ -246,6 +227,7 @@ module.exports = {
   registerAgent, 
   listAgents, 
   getAgent, 
+  getReputationTimeline,
   submitReputation,
   getReputationHistory,
   recordActivity,

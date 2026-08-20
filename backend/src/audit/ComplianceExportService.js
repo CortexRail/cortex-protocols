@@ -30,7 +30,8 @@
  */
 
 const crypto = require("crypto");
-const { query, withTransaction } = require("../db/connection");
+const { query } = require("../db/connection");
+// const { withTransaction } = require("../db/connection");
 const { AuditLogWriter, EVENT_TYPES } = require("./AuditLogWriter");
 
 class ComplianceExportService {
@@ -205,7 +206,7 @@ class ComplianceExportService {
   }
 
   async _getAuditLog(subjectId) {
-    const writer = AuditLogWriter.getInstance();
+    const _writer = AuditLogWriter.getInstance();
     // Also include entries where the subject appears as the actor.
     const { rows } = await query(
       `SELECT id, seq, event_type, actor, subject_id, payload,

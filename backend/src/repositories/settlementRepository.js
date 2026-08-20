@@ -68,7 +68,7 @@ async function markConfirmed(id, { ledgerSequence }, client) {
 async function markFailed(id, errorMessage, client) {
   const { rows } = await run(
     `UPDATE settlement_ledger
-     SET status = 'FAILED',
+     SET status = CASE WHEN retry_count >= 3 THEN 'DEAD_LETTERED' ELSE 'FAILED' END,
          error_message = $2,
          retry_count = retry_count + 1,
          updated_at = now()
@@ -227,4 +227,5 @@ module.exports = {
   findByNonce,
   getHealthMetrics,
   deleteOldConfirmed,
+  mapSettlement,
 };

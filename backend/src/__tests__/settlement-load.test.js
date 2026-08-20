@@ -150,7 +150,7 @@ describe("Settlement Load Tests", () => {
       nonceCounts.set(s.batchNonce, count + 1);
     });
 
-    nonceCounts.forEach((count, nonce) => {
+    nonceCounts.forEach((count, _nonce) => {
       expect(count).toBe(1); // Each nonce should appear exactly once
     });
 
@@ -235,7 +235,7 @@ describe("Settlement Load Tests", () => {
         const s = await withTransaction(async (client) => {
           const created = await settlementRepository.createPending(
             {
-              batchNonce: Date.now() + Math.random() * 1000,
+              batchNonce: Math.floor(Date.now() + Math.random() * 1000),
               recipient: "GRECIPIENT_METRICS",
               streamIds: [200000 + i],
               expectedAmounts: [100000],

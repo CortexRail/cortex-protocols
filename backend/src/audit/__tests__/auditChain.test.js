@@ -23,7 +23,7 @@ const fs = require("fs");
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 async function applyMigrations(pool) {
-  const migrationsDir = path.join(__dirname, "../../../db/migrations");
+  const migrationsDir = path.join(__dirname, "../../db/migrations");
   const files = fs
     .readdirSync(migrationsDir)
     .filter((f) => /^\d{3,}_[\w-]+\.sql$/.test(f))
@@ -272,7 +272,7 @@ describe("Audit chain", () => {
     // After pseudonymisation the entry_hash values no longer match the
     // pseudonymised payload, but the structural linkage (prev_hash pointers
     // and seq continuity) is intact.
-    const verifier = new AuditChainVerifier();
+    const _verifier = new AuditChainVerifier();
     // We call verifyRange to check just seq continuity and prev_hash linkage,
     // which remain valid. The full verify() will show hash mismatches (expected
     // after pseudonymisation) — this is by design and documented.
@@ -344,7 +344,7 @@ describe("Audit chain", () => {
   test("Merkle proof fails for a tampered entry hash", async () => {
     const { AuditLogWriter, EVENT_TYPES } = require("../AuditLogWriter");
     const { MerkleAnchor, verifyMerkleProof } = require("../MerkleAnchor");
-const { logger } = require("../../utils/logger");
+
     const writer = AuditLogWriter.getInstance();
 
     for (let i = 1; i <= 4; i++) {
