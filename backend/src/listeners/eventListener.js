@@ -14,6 +14,8 @@ const {
   removeAsset,
   updateAssetVersion,
 } = require("../services/assetService");
+const { setEscrowStatus } = require("../services/escrowService");
+const { syncDisputeResolution } = require("../services/disputeService");
 const { registerAgent } = require("../services/agentService");
 const eventLogRepository = require("../repositories/eventLogRepository");
 
@@ -113,9 +115,6 @@ async function processEvent(event) {
       );
       break;
     }
-const { setEscrowStatus } = require("../services/escrowService");
-const { syncDisputeResolution } = require("../services/disputeService");
-const { logger } = require("../utils/logger");
 
     case "REGISTERED": {
       console.info(`[eventListener] agent registered: id=${event.value}`);

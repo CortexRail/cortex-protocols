@@ -39,7 +39,7 @@ const writeLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: store,
-  keyGenerator: (req, _res) => {
+  keyGenerator: (req, res) => {
     // Determine the relevant Stellar address from the body based on the endpoint.
     const address =
       req.body?.owner ||

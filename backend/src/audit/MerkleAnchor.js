@@ -285,7 +285,6 @@ class MerkleAnchor {
           xdr.Uint64.fromString(entryCount.toString())
         );
         const adminScVal = require("@stellar/stellar-sdk").Address.fromString(
-const { logger } = require("../utils/logger");
           serverKeypair.publicKey()
         ).toScVal();
 
