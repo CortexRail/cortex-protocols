@@ -7,9 +7,13 @@ deployed_addresses.env
 
 # Keypairs and secrets — NEVER commit
 .stellar/
+# Written by start-local-network.sh; holds funded test account SECRET keys
+local-accounts.json
 
 # Generated deployment artifacts (commit these if you want to share addresses)
 # deployed_addresses.json
+# Written by deploy-all.sh — local addresses, regenerated on every deploy
+deployed-addresses.local.json
 verification_report.json
 
 # Monitoring outputs
