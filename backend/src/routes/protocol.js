@@ -210,7 +210,7 @@ router.post(
       pricePerCall: agreedRate,
     });
 
-    const streamToken = StreamNegotiator.issueStreamToken(saved, agreedRate);
+    const streamToken = StreamNegotiator.issueStreamToken(saved, agreedRate, assetId);
     res.status(201).json({
       streamToken,
       stream: saved,
@@ -232,8 +232,23 @@ router.post(
       return res.status(401).json({ error: "stream_token is required" });
     }
 
+    // Hash whatever the caller metered, minus the transport fields, so replay
+    // detection has something to compare. A client may send `payloadHash`
+    // itself when the real payload must not reach us.
+    const body = req.body || {};
+    const payload = { ...body };
+    delete payload.stream_token;
+    delete payload.streamToken;
+    delete payload.payloadHash;
+    const payloadHash =
+      typeof body.payloadHash === "string" && body.payloadHash.length
+        ? body.payloadHash
+        : MeteringEngine.hashPayload(payload);
+
     try {
-      const { calls_remaining, settle_now, stream } = await MeteringEngine.meterCall(token);
+      const { calls_remaining, settle_now, stream } = await MeteringEngine.meterCall(token, {
+        payloadHash,
+      });
       StreamMonitor.checkStreamAndAlert(stream);
       res.json({ calls_remaining, settle_now });
     } catch (err) {

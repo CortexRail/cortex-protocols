@@ -6,7 +6,7 @@ const { run, toMs, normalizePagination, buildMeta } = require("./repoUtils");
 
 const COLUMNS = `
   id, asset_id, reporter, reason, details, status, resolution_note,
-  created_at, resolved_at
+  source, evidence, created_at, resolved_at
 `;
 
 function mapReport(row) {
@@ -19,6 +19,8 @@ function mapReport(row) {
     details: row.details,
     status: row.status,
     resolutionNote: row.resolution_note,
+    source: row.source,
+    evidence: row.evidence,
     createdAt: toMs(row.created_at),
     resolvedAt: toMs(row.resolved_at),
   };
@@ -130,4 +132,48 @@ async function countForAsset(assetId, client) {
   return Number(rows[0].total);
 }
 
-module.exports = { create, findById, findAll, updateStatus, countForAsset };
+/**
+ * File (or refresh) the automated report the fraud scan raises for an asset.
+ *
+ * The partial unique index `idx_reports_one_open_per_reporter` allows exactly
+ * one open report per (asset, reporter). For a human that guard exists to stop
+ * spam; for the scanner it is exactly the behaviour we want — every scan cycle
+ * refreshes the same queue item with the current evidence rather than filing a
+ * new report each time it runs.
+ *
+ * Only OPEN reports collide, so once a moderator resolves or dismisses one, a
+ * later scan files a fresh report rather than silently reopening a closed case.
+ */
+async function upsertAutomated(report, client) {
+  const { assetId, reporter, reason, details = "", evidence = null } = report;
+
+  const { rows } = await run(
+    `INSERT INTO reports (asset_id, reporter, reason, details, source, evidence)
+     VALUES ($1, $2, $3, $4, 'automated', $5::jsonb)
+     ON CONFLICT (asset_id, reporter)
+       WHERE status IN ('Pending', 'UnderReview')
+     DO UPDATE SET
+       reason   = EXCLUDED.reason,
+       details  = EXCLUDED.details,
+       evidence = EXCLUDED.evidence
+     RETURNING ${COLUMNS}`,
+    [
+      assetId,
+      reporter,
+      reason,
+      details,
+      evidence === null ? null : JSON.stringify(evidence),
+    ],
+    client
+  );
+  return mapReport(rows[0]);
+}
+
+module.exports = {
+  create,
+  findById,
+  findAll,
+  updateStatus,
+  countForAsset,
+  upsertAutomated,
+};

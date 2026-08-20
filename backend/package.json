@@ -13,7 +13,8 @@
     "simulate": "node src/simulation/run-simulation.js",
     "simulate:smoke": "node src/simulation/run-simulation.js --smoke --mock",
     "lint": "eslint src/",
-    "test": "jest --forceExit"
+    "test": "jest --forceExit",
+    "backtest:fraud": "jest src/__tests__/fraud --forceExit"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.1.0",

@@ -124,3 +124,94 @@ describe("reportRepository.countForAsset", () => {
     expect(await reportRepository.countForAsset(other.id)).toBe(0);
   });
 });
+
+/**
+ * `upsertAutomated` leans on ON CONFLICT inferring the pre-existing partial
+ * unique index `idx_reports_one_open_per_reporter`, whose predicate is
+ * `status IN ('Pending','UnderReview')`. That index was written to stop humans
+ * spamming reports; the scanner reuses it so repeated scans refresh a single
+ * queue item per asset instead of filing a new report every cycle.
+ */
+describe("reportRepository.upsertAutomated", () => {
+  const SCANNER = "system:fraud-scan";
+
+  function buildAutomated(overrides = {}) {
+    return {
+      assetId: asset.id,
+      reporter: SCANNER,
+      reason: "AutomatedFraud",
+      details: "Risk CRITICAL (score 0.92): wash usage and sybil cluster agreed.",
+      evidence: { detectorCount: 2, signals: [{ detector: "wash_usage", rawScore: 0.98 }] },
+      ...overrides,
+    };
+  }
+
+  it("files an automated report with source and evidence", async () => {
+    const report = await reportRepository.upsertAutomated(buildAutomated());
+
+    expect(report.id).toBeGreaterThan(0);
+    expect(report.source).toBe("automated");
+    expect(report.reason).toBe("AutomatedFraud");
+    expect(report.status).toBe("Pending");
+    expect(report.evidence).toEqual({
+      detectorCount: 2,
+      signals: [{ detector: "wash_usage", rawScore: 0.98 }],
+    });
+  });
+
+  it("refreshes the open report instead of raising a duplicate-key error", async () => {
+    const first = await reportRepository.upsertAutomated(buildAutomated());
+    const second = await reportRepository.upsertAutomated(
+      buildAutomated({
+        details: "Risk CRITICAL (score 0.97): evidence strengthened.",
+        evidence: { detectorCount: 3 },
+      })
+    );
+
+    expect(second.id).toBe(first.id);
+    expect(second.details).toContain("0.97");
+    expect(second.evidence).toEqual({ detectorCount: 3 });
+
+    const all = await reportRepository.findAll({}, { page: 1, limit: 50 });
+    expect(all.meta.total).toBe(1);
+  });
+
+  it("files a new report once the previous one has been resolved", async () => {
+    const first = await reportRepository.upsertAutomated(buildAutomated());
+    await reportRepository.updateStatus(first.id, "Resolved", "not fraud after review");
+
+    // A resolved report leaves the partial index, so a later recurrence opens
+    // a genuinely new case rather than silently reopening a closed one.
+    const second = await reportRepository.upsertAutomated(buildAutomated());
+
+    expect(second.id).not.toBe(first.id);
+    expect(second.status).toBe("Pending");
+
+    const all = await reportRepository.findAll({}, { page: 1, limit: 50 });
+    expect(all.meta.total).toBe(2);
+  });
+
+  it("does not collide with a human report on the same asset", async () => {
+    await reportRepository.create(buildReport());
+    const automated = await reportRepository.upsertAutomated(buildAutomated());
+
+    expect(automated.source).toBe("automated");
+
+    const all = await reportRepository.findAll({}, { page: 1, limit: 50 });
+    expect(all.meta.total).toBe(2);
+    expect(all.data.map((r) => r.source).sort()).toEqual(["automated", "user"]);
+  });
+
+  it("still rejects an unknown reason", async () => {
+    await expect(
+      reportRepository.upsertAutomated(buildAutomated({ reason: "NotARealReason" }))
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("defaults reports filed by a human to source 'user'", async () => {
+    const report = await reportRepository.create(buildReport());
+
+    expect(report.source).toBe("user");
+    expect(report.evidence).toBeNull();
+  });
+});

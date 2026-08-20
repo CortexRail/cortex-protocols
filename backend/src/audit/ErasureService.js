@@ -239,9 +239,63 @@ class ErasureService {
         "UPDATE reports SET reporter = $2 WHERE reporter = $1 RETURNING id",
         [subjectId, reporterPseudonym]
       );
-      if (reportResult.rowCount > 0) {
+      // Automated reports carry the fraud signal's explainability payload,
+      // which names the addresses the detectors fired on.
+      const reportJsonResult = await this._scrubJsonbColumn(
+        client, "reports", ["evidence"], subjectId, subjectPseudonym
+      );
+      const reportChanged = reportResult.rowCount + reportJsonResult;
+      if (reportChanged > 0) {
         summary.tables_modified.push("reports");
-        totalChanged += reportResult.rowCount;
+        totalChanged += reportChanged;
+      }
+
+      // ── usage_events ─────────────────────────────────────────────────────
+      // The per-call metering log: `caller` is the paying address and
+      // `counterparty` the paid one, the same pair `streams` holds.
+      const usageResult = await client.query(
+        `UPDATE usage_events
+         SET caller       = CASE WHEN caller = $1 THEN $2 ELSE caller END,
+             counterparty = CASE WHEN counterparty = $1 THEN $3 ELSE counterparty END
+         WHERE caller = $1 OR counterparty = $1
+         RETURNING id`,
+        [subjectId, senderPseudonym, recipientPseudonym]
+      );
+      if (usageResult.rowCount > 0) {
+        summary.tables_modified.push("usage_events");
+        totalChanged += usageResult.rowCount;
+      }
+
+      // ── fraud_signals ────────────────────────────────────────────────────
+      // Both the flagged address and the evidence payload, which embeds
+      // sample rows and sybil subgraphs full of addresses.
+      const signalResult = await client.query(
+        "UPDATE fraud_signals SET agent_address = $2 WHERE agent_address = $1 RETURNING id",
+        [subjectId, subjectPseudonym]
+      );
+      const signalJsonResult = await this._scrubJsonbColumn(
+        client, "fraud_signals", ["evidence"], subjectId, subjectPseudonym
+      );
+      const signalChanged = signalResult.rowCount + signalJsonResult;
+      if (signalChanged > 0) {
+        summary.tables_modified.push("fraud_signals");
+        totalChanged += signalChanged;
+      }
+
+      // ── agent_funding_sources ────────────────────────────────────────────
+      // The subject may appear as the funded account (primary key) or as the
+      // funder of other accounts; both are addresses.
+      const fundingResult = await client.query(
+        `UPDATE agent_funding_sources
+         SET agent_address  = CASE WHEN agent_address = $1 THEN $2 ELSE agent_address END,
+             funding_source = CASE WHEN funding_source = $1 THEN $2 ELSE funding_source END
+         WHERE agent_address = $1 OR funding_source = $1
+         RETURNING agent_address`,
+        [subjectId, subjectPseudonym]
+      );
+      if (fundingResult.rowCount > 0) {
+        summary.tables_modified.push("agent_funding_sources");
+        totalChanged += fundingResult.rowCount;
       }
 
       // ── admin_actions ────────────────────────────────────────────────────

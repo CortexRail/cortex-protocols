@@ -11,6 +11,7 @@ const { withTransaction } = require("../db/connection");
 const assetRepository = require("../repositories/assetRepository");
 const licenseRepository = require("../repositories/licenseRepository");
 const contractStateRepository = require("../repositories/contractStateRepository");
+const usageEventRepository = require("../repositories/usageEventRepository");
 
 // Terms applied when the on-chain contract doesn't dictate them explicitly.
 const DEFAULT_USAGE_BASED_CALLS = 100;
@@ -108,9 +109,39 @@ async function purchaseLicense({ assetId, buyer, assetVersion }) {
 /**
  * Consume one metered call on a license. Returns the updated license,
  * or null when the license is exhausted, expired, or unknown.
+ *
+ * The decrement and the usage-log write share one transaction, so the fraud
+ * detectors' view of billed calls can never drift from the counter. A call
+ * that consumed nothing (exhausted/unknown licence) logs nothing.
+ *
+ * @param {number} licenseId
+ * @param {object} [options]
+ * @param {string|null} [options.payloadHash] - canonical request-payload hash
  */
-async function consumeLicenseCall(licenseId) {
-  return licenseRepository.consumeCall(licenseId);
+async function consumeLicenseCall(licenseId, { payloadHash = null } = {}) {
+  return withTransaction(async (client) => {
+    const license = await licenseRepository.consumeCall(licenseId, client);
+    if (!license) return null;
+
+    await usageEventRepository.record(
+      {
+        source: "license",
+        licenseId: license.id,
+        assetId: license.assetId,
+        caller: license.buyer,
+        // The payee is assets.owner, which detectors resolve through asset_id
+        // rather than making every metered call pay for a join.
+        counterparty: null,
+        payloadHash,
+        // Licences are paid for up front, so an individual call carries no
+        // revenue: wash-usage scoring weighs call share for these, not value.
+        pricePaid: 0,
+      },
+      client
+    );
+
+    return license;
+  });
 }
 
 /**
