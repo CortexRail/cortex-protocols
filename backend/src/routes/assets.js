@@ -14,6 +14,7 @@ const assetRepository = require("../repositories/assetRepository");
 const { purchaseLicense } = require("../services/licenseService");
 const { fileReport, REPORT_REASONS } = require("../services/reportService");
 const { isValidStellarAddress } = require("../utils/stellar");
+const { publicReadLimiter, writeLimiter } = require("../middleware/rateLimiter");
 
 const router = Router();
 
@@ -23,6 +24,7 @@ const router = Router();
  */
 router.get(
   "/",
+  publicReadLimiter,
   [
     query("assetType").optional().isIn(ASSET_TYPES),
     query("licenseType").optional().isIn(LICENSE_TYPES),
@@ -67,6 +69,7 @@ router.get(
  */
 router.post(
   "/:id/delist",
+  writeLimiter,
   [
     param("id").isInt({ min: 1 }),
     body("owner").isString().isLength({ min: 56, max: 56 }),
@@ -91,6 +94,7 @@ router.post(
  */
 router.patch(
   "/:id/price",
+  writeLimiter,
   [
     param("id").isInt({ min: 1 }),
     body("owner").isString().isLength({ min: 56, max: 56 }),
@@ -118,6 +122,7 @@ router.patch(
  */
 router.get(
   "/:id",
+  publicReadLimiter,
   [param("id").isInt({ min: 1 })],
   validate,
   asyncHandler(async (req, res) => {
@@ -135,6 +140,7 @@ router.get(
  */
 router.post(
   "/",
+  writeLimiter,
   [
     body("id").isInt({ min: 1 }),
     body("owner")
@@ -164,6 +170,7 @@ router.post(
  */
 router.post(
   "/:id/purchase",
+  writeLimiter,
   [
     param("id").isInt({ min: 1 }),
     body("buyer")
@@ -197,6 +204,7 @@ router.post(
  */
 router.post(
   "/:id/report",
+  writeLimiter,
   [
     param("id").isInt({ min: 1 }),
     body("reporter")
@@ -223,7 +231,7 @@ router.post(
  * GET /api/v1/assets/types/list
  * Return all valid asset types and license types.
  */
-router.get("/types/list", (_req, res) => {
+router.get("/types/list", publicReadLimiter, (_req, res) => {
   res.json({ assetTypes: ASSET_TYPES, licenseTypes: LICENSE_TYPES });
 });
 

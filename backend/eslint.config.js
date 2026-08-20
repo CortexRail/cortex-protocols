@@ -1,17 +1,17 @@
-const js = require("@eslint/js");
-const globals = require("globals");
+import { configs } from "@eslint/js";
+import { node, jest } from "globals";
 
-module.exports = [
+export default [
   {
     ignores: ["coverage/**"],
   },
-  js.configs.recommended,
+  configs.recommended,
   {
     files: ["src/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "commonjs",
-      globals: globals.node,
+      globals: node,
     },
     rules: {
       "no-unused-vars": [
@@ -27,7 +27,7 @@ module.exports = [
   {
     files: ["src/__tests__/**/*.js"],
     languageOptions: {
-      globals: globals.jest,
+      globals: jest,
     },
   },
 ];
