@@ -2,7 +2,7 @@
  * Stream repository — all SQL touching the `streams` table lives here.
  */
 
-const { run, toMs, normalizePagination, buildMeta } = require("./repoUtils");
+const { run, toMs, msParam, normalizePagination, buildMeta } = require("./repoUtils");
 
 const COLUMNS = `
   id, sender, recipient, token, deposit, rate_per_second, start_time,
@@ -228,6 +228,47 @@ async function findStreamsToSettle(batchSize = 25, client) {
   return rows.map(mapStream);
 }
 
+/**
+ * Distinct sender → recipient pairs seen in the window, one of the edge
+ * sources SybilGraphDetector unions into its relationship graph.
+ *
+ * Filtered on `indexed_at` (when we saw the stream) rather than `start_time`,
+ * so a scan window means the same thing here as it does for usage events.
+ * Self-streams are excluded: they are a wash-trading signal, not a
+ * relationship between two parties.
+ *
+ * @param {{from: number, to: number}} window - epoch ms bounds
+ * @returns {Promise<Array<{from: string, to: string, relations: number,
+ *   value: number, firstSeen: number, lastSeen: number}>>}
+ */
+async function edgesInWindow({ from, to } = {}, client) {
+  const { rows } = await run(
+    `SELECT sender AS from_address,
+            recipient AS to_address,
+            count(*)::bigint AS relations,
+            coalesce(sum(deposit), 0)::bigint AS value,
+            min(indexed_at) AS first_seen,
+            max(indexed_at) AS last_seen
+     FROM streams
+     WHERE indexed_at >= to_timestamp($1::double precision / 1000.0)
+       AND indexed_at <  to_timestamp($2::double precision / 1000.0)
+       AND sender <> recipient
+     GROUP BY sender, recipient`,
+    [msParam(from), msParam(to)],
+    client,
+    "read"
+  );
+
+  return rows.map((row) => ({
+    from: row.from_address,
+    to: row.to_address,
+    relations: Number(row.relations),
+    value: Number(row.value),
+    firstSeen: toMs(row.first_seen),
+    lastSeen: toMs(row.last_seen),
+  }));
+}
+
 module.exports = {
   create,
   findById,
@@ -239,4 +280,5 @@ module.exports = {
   recordWithdrawal,
   updateCalls,
   findStreamsToSettle,
+  edgesInWindow,
 };
