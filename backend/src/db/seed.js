@@ -141,13 +141,14 @@ module.exports = { seed, SAMPLE_ASSETS, SAMPLE_AGENTS };
 // ── CLI entrypoint ────────────────────────────────────────────────────────────
 if (require.main === module) {
   require("dotenv").config();
+const { logger } = require("../utils/logger");
 
   seed()
     .then(({ assets, agents }) => {
       console.info(`[seed] upserted ${assets} assets, ${agents} agents`);
     })
     .catch((err) => {
-      console.error("[seed] failed:", err.message);
+      logger.error("[seed] failed:", err.message);
       process.exitCode = 1;
     })
     .finally(() => closePool());

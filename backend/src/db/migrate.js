@@ -120,6 +120,7 @@ module.exports = { migrate, status, listMigrationFiles };
 // ── CLI entrypoint ────────────────────────────────────────────────────────────
 if (require.main === module) {
   require("dotenv").config();
+const { logger } = require("../utils/logger");
 
   const command = process.argv[2] || "up";
 
@@ -138,7 +139,7 @@ if (require.main === module) {
 
   run()
     .catch((err) => {
-      console.error("[migrate] failed:", err.message);
+      logger.error("[migrate] failed:", err.message);
       process.exitCode = 1;
     })
     .finally(() => closePool());

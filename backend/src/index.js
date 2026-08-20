@@ -11,7 +11,7 @@ async function start() {
   // (e.g. when a deploy pipeline runs `npm run migrate` separately).
   if (process.env.RUN_MIGRATIONS_ON_BOOT !== "false") {
     const { applied, skipped } = await migrate();
-    console.log(
+    logger.info(
       `[cortex-protocol] migrations: ${applied.length} applied, ${skipped} up to date`
     );
   }
@@ -20,10 +20,10 @@ async function start() {
   if (!db.healthy) {
     throw new Error(`database unreachable: ${db.error}`);
   }
-  console.log(`[cortex-protocol] database healthy (${db.latencyMs}ms)`);
+  logger.info(`[cortex-protocol] database healthy (${db.latencyMs}ms)`);
 
   const server = app.listen(PORT, () => {
-    console.log(
+    logger.info(
       `[cortex-protocol] backend running on port ${PORT} (${process.env.NODE_ENV || "development"})`
     );
   });
@@ -33,6 +33,7 @@ async function start() {
 
   // Start periodic Merkle anchoring of the audit log.
   const { MerkleAnchor } = require("./audit/MerkleAnchor");
+const { logger } = require("./utils/logger");
   MerkleAnchor.getInstance().start();
 
   // ── Graceful shutdown ──────────────────────────────────────────────────────
@@ -42,24 +43,24 @@ async function start() {
   async function shutdown(signal) {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[cortex-protocol] ${signal} received — shutting down`);
+    logger.info(`[cortex-protocol] ${signal} received — shutting down`);
 
     server.close(async () => {
       try {
         await stopPipeline();
         MerkleAnchor.getInstance().stop();
         await closePool();
-        console.log("[cortex-protocol] database pool closed, bye");
+        logger.info("[cortex-protocol] database pool closed, bye");
         process.exit(0);
       } catch (err) {
-        console.error("[cortex-protocol] error during shutdown:", err.message);
+        logger.error("[cortex-protocol] error during shutdown:", err.message);
         process.exit(1);
       }
     });
 
     // Hard-stop if connections refuse to drain.
     setTimeout(() => {
-      console.error("[cortex-protocol] forced shutdown after 10s");
+      logger.error("[cortex-protocol] forced shutdown after 10s");
       process.exit(1);
     }, 10_000).unref();
   }
@@ -69,6 +70,6 @@ async function start() {
 }
 
 start().catch((err) => {
-  console.error("[cortex-protocol] failed to start:", err.message);
+  logger.error("[cortex-protocol] failed to start:", err.message);
   process.exit(1);
 });

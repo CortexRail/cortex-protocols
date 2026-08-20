@@ -95,7 +95,7 @@ router.post(
     // Kick off async processing — don't await so the response is immediate.
     const service = new ComplianceExportService();
     service.processExport(requestRow.id).catch((err) => {
-      console.error(`[compliance] export ${requestRow.id} failed:`, err.message);
+      logger.error(`[compliance] export ${requestRow.id} failed:`, err.message);
     });
 
     res.status(202).json({
@@ -146,7 +146,7 @@ router.post(
 
     const service = new ErasureService();
     service.processErasure(requestRow.id).catch((err) => {
-      console.error(`[compliance] erasure ${requestRow.id} failed:`, err.message);
+      logger.error(`[compliance] erasure ${requestRow.id} failed:`, err.message);
     });
 
     res.status(202).json({
@@ -281,6 +281,7 @@ router.get(
 
     // Constant-time token comparison.
     const { createHash, timingSafeEqual } = require("crypto");
+const { logger } = require("../utils/logger");
     const provided = createHash("sha256").update(String(req.query.token)).digest();
     const stored = createHash("sha256").update(String(row.download_token)).digest();
     if (!timingSafeEqual(provided, stored)) {

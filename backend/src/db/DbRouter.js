@@ -8,6 +8,7 @@
  */
 
 const { queryRead, queryWrite, getClient, getReadClient, withTransaction } = require("./connection");
+const { logger } = require("../utils/logger");
 
 // Method-name patterns that are always writes (mutations)
 const WRITE_PATTERNS = [
@@ -93,7 +94,7 @@ async function route(functionName, intent, fn) {
     }
   } catch (err) {
     // If the read pool connection fails, fall back to the write pool.
-    console.warn("[db-router] read pool failed, falling back to primary:", err.message);
+    logger.warn("[db-router] read pool failed, falling back to primary:", err.message);
     const writeClient = await getClient();
     try {
       return await fn(writeClient);
@@ -110,7 +111,7 @@ async function readQuery(text, params = []) {
   try {
     return await queryRead(text, params);
   } catch (err) {
-    console.warn("[db-router] read query failed, falling back to primary:", err.message);
+    logger.warn("[db-router] read query failed, falling back to primary:", err.message);
     return queryWrite(text, params);
   }
 }

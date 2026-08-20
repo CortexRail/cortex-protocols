@@ -5,6 +5,7 @@ const streamRepository = require("../repositories/streamRepository");
 const { withTransaction } = require("../db/connection");
 const SettlementLedger = require("./SettlementLedger");
 const SettlementReconciler = require("./SettlementReconciler");
+const { logger } = require("../utils/logger");
 
 let intervalId = null;
 let isRecovering = false;
@@ -20,7 +21,7 @@ function getServerKeypair() {
   try {
     return Keypair.fromSecret(secret);
   } catch (err) {
-    console.error("[BatchSettler] Invalid SERVER_SECRET_KEY:", err.message);
+    logger.error("[BatchSettler] Invalid SERVER_SECRET_KEY:", err.message);
     return null;
   }
 }
@@ -87,7 +88,7 @@ async function runSettlement() {
     // 3. Trigger on-chain batch_settle with nonce
     const contractId = CONTRACT_IDS.micropayments;
     if (!contractId) {
-      console.warn("[BatchSettler] micropayments contract not configured; skipping on-chain call");
+      logger.warn("[BatchSettler] micropayments contract not configured; skipping on-chain call");
       await SettlementLedger.failSettlement(settlement.id, new Error("Contract not configured"));
       return;
     }
@@ -124,11 +125,11 @@ async function runSettlement() {
     } catch (err) {
       // 5. Mark as FAILED on error
       await SettlementLedger.failSettlement(settlement.id, err);
-      console.error("[BatchSettler] On-chain batch_settle failed:", err.message);
+      logger.error("[BatchSettler] On-chain batch_settle failed:", err.message);
       throw err;
     }
   } catch (err) {
-    console.error("[BatchSettler] error during settlement:", err.message);
+    logger.error("[BatchSettler] error during settlement:", err.message);
   }
 }
 
@@ -221,13 +222,13 @@ async function recoverPendingSettlements() {
 
     const keypair = getServerKeypair();
     if (!keypair) {
-      console.warn("[BatchSettler] No server keypair - cannot recover on-chain settlements");
+      logger.warn("[BatchSettler] No server keypair - cannot recover on-chain settlements");
       return;
     }
 
     const contractId = CONTRACT_IDS.micropayments;
     if (!contractId) {
-      console.warn("[BatchSettler] Contract not configured - cannot recover settlements");
+      logger.warn("[BatchSettler] Contract not configured - cannot recover settlements");
       return;
     }
 
@@ -267,7 +268,7 @@ async function recoverPendingSettlements() {
           }
         });
       } catch (err) {
-        console.error(`[BatchSettler] Failed to recover settlement ${settlement.id}:`, err.message);
+        logger.error(`[BatchSettler] Failed to recover settlement ${settlement.id}:`, err.message);
         await SettlementLedger.failSettlement(settlement.id, err);
       }
     }

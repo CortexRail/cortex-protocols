@@ -11,6 +11,7 @@
  */
 
 const { queryRead, queryWrite } = require("./connection");
+const { logger } = require("../utils/logger");
 
 const DEFAULT_CHECK_INTERVAL_MS = 10_000; // 10 seconds
 const DEFAULT_LAG_THRESHOLD_MS = 30_000; // 30 seconds
@@ -32,7 +33,7 @@ function startHeartbeatWriter(intervalMs = 5_000) {
         "INSERT INTO replica_heartbeat (id, written_at) VALUES (1, now()) ON CONFLICT (id) DO UPDATE SET written_at = now()"
       );
     } catch (err) {
-      console.warn("[lag-monitor] heartbeat write failed:", err.message);
+      logger.warn("[lag-monitor] heartbeat write failed:", err.message);
     }
   };
 
@@ -99,7 +100,7 @@ async function checkOnce() {
 
     if (lag > threshold) {
       if (!isDegraded) {
-        console.warn(
+        logger.warn(
           `[lag-monitor] replica lag ${Math.round(lag)}ms exceeds threshold ${threshold}ms — routing reads to primary`
         );
       }
@@ -116,12 +117,12 @@ async function checkOnce() {
     }
   } catch (err) {
     consecutiveFailures++;
-    console.warn(
+    logger.warn(
       `[lag-monitor] check failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`,
       err.message
     );
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && !isDegraded) {
-      console.warn(
+      logger.warn(
         "[lag-monitor] too many consecutive failures — routing reads to primary"
       );
       isDegraded = true;
