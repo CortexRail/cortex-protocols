@@ -13,7 +13,8 @@ const { query, closePool } = require("../../db/connection");
 async function truncateAll() {
   await query(
     `TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets,
-       admin_actions, agent_bans, contract_state, dispute_votes, disputes, agent_stakes
+       admin_actions, agent_bans, contract_state, dispute_votes, disputes, agent_stakes,
+       usage_events, fraud_signals, agent_funding_sources
      RESTART IDENTITY CASCADE`
   );
   await query("DELETE FROM replica_heartbeat");
@@ -81,6 +82,21 @@ function buildStream(overrides = {}) {
   };
 }
 
+function buildUsageEvent(overrides = {}) {
+  return {
+    source: "stream",
+    streamId: null,
+    licenseId: null,
+    assetId: null,
+    caller: OWNER_A,
+    counterparty: OWNER_B,
+    payloadHash: null,
+    pricePaid: 1000,
+    occurredAt: Date.now(),
+    ...overrides,
+  };
+}
+
 function buildEvent(overrides = {}) {
   return {
     ledger: 1000,
@@ -99,6 +115,7 @@ module.exports = {
   buildAgent,
   buildStream,
   buildEvent,
+  buildUsageEvent,
   OWNER_A,
   OWNER_B,
 };
