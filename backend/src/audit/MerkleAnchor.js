@@ -28,7 +28,8 @@
  */
 
 const crypto = require("crypto");
-const { query, withTransaction } = require("../db/connection");
+const { query } = require("../db/connection");
+// const { withTransaction } = require("../db/connection");
 const { AuditLogWriter, EVENT_TYPES } = require("./AuditLogWriter");
 
 // Anchor triggers: whichever threshold is crossed first triggers an anchoring.

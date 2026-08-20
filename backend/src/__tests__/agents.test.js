@@ -1,10 +1,10 @@
 const request = require("supertest");
 const app = require("../app");
 const { seed } = require("../db/seed");
-const { truncateAll, closePool, OWNER_B } = require("./helpers/testDb");
+const { truncateAll, closePool, OWNER_B: _OWNER_B } = require("./helpers/testDb");
 
 // Right length (56 chars), right "G" prefix, but an invalid checksum.
-const BAD_CHECKSUM_KEY =
+const _BAD_CHECKSUM_KEY =
   "GA234567A234567A234567A234567A234567A234567A234567A23456";
 
 beforeAll(async () => {

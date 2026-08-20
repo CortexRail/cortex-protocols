@@ -150,7 +150,7 @@ describe("Settlement Load Tests", () => {
       nonceCounts.set(s.batchNonce, count + 1);
     });
 
-    nonceCounts.forEach((count, nonce) => {
+    nonceCounts.forEach((count, _nonce) => {
       expect(count).toBe(1); // Each nonce should appear exactly once
     });
 
