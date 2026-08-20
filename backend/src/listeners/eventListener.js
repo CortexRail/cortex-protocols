@@ -7,6 +7,7 @@
  * ledger recorded in the audit log — no events are silently skipped.
  */
 
+const { logger } = require("../utils/logger");
 const { rpcServer, CONTRACT_IDS } = require("../config/stellar");
 const { scValToNative } = require("@stellar/stellar-sdk");
 const {

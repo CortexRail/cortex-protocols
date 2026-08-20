@@ -23,7 +23,7 @@ const fs = require("fs");
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 async function applyMigrations(pool) {
-  const migrationsDir = path.join(__dirname, "../../../db/migrations");
+  const migrationsDir = path.join(__dirname, "../../db/migrations");
   const files = fs
     .readdirSync(migrationsDir)
     .filter((f) => /^\d{3,}_[\w-]+\.sql$/.test(f))
