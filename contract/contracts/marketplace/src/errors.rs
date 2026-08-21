@@ -117,11 +117,26 @@ pub enum MarketplaceError {
     BidAlreadyRevealed = 36,
 
     /// Reveal uses a different payment token than the auction escrow.
-    TokenMismatch = 37,
+    TokenMismatch = 32,
 
-    /// UsageBased license calls exhausted
-    LicenseExhausted = 38,
+    /// Policy not found.
+    PolicyNotFound = 33,
 
-    /// Invalid bundle size for top-up
-    InvalidBundleSize = 39,
+    /// Invalid threshold or required signers.
+    InvalidThreshold = 34,
+
+    /// Proposal not found.
+    ProposalNotFound = 35,
+
+    /// Signer is not authorized for this policy.
+    NotASigner = 36,
+
+    /// Signer already approved this proposal.
+    SignerAlreadyApproved = 37,
+
+    /// Proposal is not in pending state.
+    ProposalNotPending = 38,
+
+    /// Proposal has expired.
+    ProposalExpired = 39,
 }

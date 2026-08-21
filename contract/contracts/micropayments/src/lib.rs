@@ -40,6 +40,23 @@ pub enum SettlementError {
     PartialBatchFailure,
 }
 
+const USAGE_STREAMS: Symbol = symbol_short!("U_STREAMS");
+const USAGE_STREAM_CNT: Symbol = symbol_short!("US_CNT");
+
+/// A usage-based payment stream from a sender to a recipient
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct UsageStream {
+    pub id: u64,
+    pub sender: Address,
+    pub recipient: Address,
+    pub token: Address,
+    pub deposit: i128,
+    pub accrued: i128,
+    pub settled: i128,
+    pub status: StreamStatus,
+}
+
 /// A payment stream from a sender to a recipient
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -83,6 +100,122 @@ pub struct MicropaymentsContract;
 
 #[contractimpl]
 impl MicropaymentsContract {
+    /// Open a usage-based stream.
+    pub fn open(
+        env: Env,
+        sender: Address,
+        recipient: Address,
+        token: Address,
+        deposit: i128,
+    ) -> u64 {
+        sender.require_auth();
+        assert!(deposit > 0, "deposit must be positive");
+
+        // Pull deposit from sender
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        token_client.transfer(&sender, &env.current_contract_address(), &deposit);
+
+        let count: u64 = env.storage().instance().get(&USAGE_STREAM_CNT).unwrap_or(0u64);
+        let stream_id = count + 1;
+
+        let stream = UsageStream {
+            id: stream_id,
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            token,
+            deposit,
+            accrued: 0,
+            settled: 0,
+            status: StreamStatus::Active,
+        };
+
+        let mut streams: Map<u64, UsageStream> = env
+            .storage()
+            .persistent()
+            .get(&USAGE_STREAMS)
+            .unwrap_or(Map::new(&env));
+
+        streams.set(stream_id, stream);
+        env.storage().persistent().set(&USAGE_STREAMS, &streams);
+        env.storage().instance().set(&USAGE_STREAM_CNT, &stream_id);
+
+        env.events()
+            .publish((symbol_short!("U_OPENED"), sender), (stream_id, deposit));
+
+        stream_id
+    }
+
+    /// Accrue usage on a usage-based stream.
+    pub fn increment(env: Env, sender: Address, stream_id: u64, amount: i128) {
+        sender.require_auth();
+        assert!(amount > 0, "amount must be positive");
+
+        let mut streams: Map<u64, UsageStream> = env
+            .storage()
+            .persistent()
+            .get(&USAGE_STREAMS)
+            .unwrap_or(Map::new(&env));
+
+        let mut stream = streams.get(stream_id).unwrap();
+        assert!(stream.sender == sender, "not the stream sender");
+        assert!(stream.status == StreamStatus::Active, "stream not active");
+
+        stream.accrued += amount;
+        assert!(stream.accrued <= stream.deposit, "accrued exceeds deposit");
+
+        streams.set(stream_id, stream);
+        env.storage().persistent().set(&USAGE_STREAMS, &streams);
+
+        env.events()
+            .publish((symbol_short!("U_INCR"), sender), (stream_id, amount));
+    }
+
+    /// Settle a usage-based stream.
+    pub fn settle(env: Env, recipient: Address, stream_id: u64) -> i128 {
+        recipient.require_auth();
+
+        let mut streams: Map<u64, UsageStream> = env
+            .storage()
+            .persistent()
+            .get(&USAGE_STREAMS)
+            .unwrap_or(Map::new(&env));
+
+        let mut stream = streams.get(stream_id).unwrap();
+        assert!(stream.recipient == recipient, "not the stream recipient");
+
+        let claimable = stream.accrued - stream.settled;
+        if claimable <= 0 {
+            return 0;
+        }
+
+        let token_client = soroban_sdk::token::Client::new(&env, &stream.token);
+        token_client.transfer(&env.current_contract_address(), &recipient, &claimable);
+
+        stream.settled += claimable;
+
+        // Auto-complete if deposit exhausted
+        if stream.settled >= stream.deposit {
+            stream.status = StreamStatus::Completed;
+        }
+
+        streams.set(stream_id, stream.clone());
+        env.storage().persistent().set(&USAGE_STREAMS, &streams);
+
+        env.events()
+            .publish((symbol_short!("U_SETTLED"), recipient), (stream_id, claimable));
+
+        claimable
+    }
+
+    pub fn get_usage_stream(env: Env, stream_id: u64) -> Option<UsageStream> {
+        let streams: Map<u64, UsageStream> = env
+            .storage()
+            .persistent()
+            .get(&USAGE_STREAMS)
+            .unwrap_or(Map::new(&env));
+        streams.get(stream_id)
+    }
+
     /// Open a new payment stream.
     pub fn open_stream(
         env: Env,
