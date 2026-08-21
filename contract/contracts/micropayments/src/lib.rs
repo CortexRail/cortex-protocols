@@ -411,5 +411,15 @@ impl MicropaymentsContract {
     }
 }
 
+/// Proof-of-execution attestation: Merkle-committed usage batches and the
+/// dispute path that makes them contestable. See attestation.rs.
+mod attestation;
+pub use attestation::{
+    AttestationLeaf, BatchStatus, UsageBatch, UsageMeter, CHALLENGE_WINDOW_SECS,
+};
+
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod attestation_test;

@@ -72,7 +72,7 @@ function getAgreement(buyer, assetId, rate) {
  * optional: tokens issued before this existed still meter fine, their usage
  * events simply carry a null asset.
  */
-function issueStreamToken(stream, pricePerCall, assetId = null) {
+function issueStreamToken(stream, pricePerCall, assetId = null, sellerKey = null) {
   const payload = {
     streamId: String(stream.id),
     sender: stream.sender,
@@ -81,6 +81,11 @@ function issueStreamToken(stream, pricePerCall, assetId = null) {
     pricePerCall: Number(pricePerCall),
     assetId: assetId === null || assetId === undefined ? null : Number(assetId),
     expiresAt: Number(stream.endTime),
+    // The key the seller's attestations are verified against. Null means the
+    // recipient address itself, which is the usual case; a separate operational
+    // key is pinned here, inside the signed token, so a metering request can
+    // never nominate the key it is checked against.
+    sellerKey: sellerKey || null,
   };
 
   return jwt.sign(payload, getJWTSecret());

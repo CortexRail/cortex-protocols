@@ -11,3 +11,7 @@ soroban-sdk = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+# Tests need to *produce* Ed25519 signatures (and deliberately bad ones); the
+# contract itself only verifies, so this stays out of the wasm build.
+ed25519-dalek = { workspace = true }
+sig_check = { path = "../sig_check" }
