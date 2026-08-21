@@ -118,4 +118,10 @@ pub enum MarketplaceError {
 
     /// Reveal uses a different payment token than the auction escrow.
     TokenMismatch = 37,
+
+    /// UsageBased license calls exhausted
+    LicenseExhausted = 38,
+
+    /// Invalid bundle size for top-up
+    InvalidBundleSize = 39,
 }

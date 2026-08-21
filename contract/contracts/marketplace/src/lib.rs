@@ -115,6 +115,8 @@ pub struct License {
     pub license_type: LicenseType,
     pub purchased_at: u64,
     pub calls_remaining: u64,
+    pub calls_used: u64,
+    pub last_used: u64,
     pub expires_at: u64,
     pub renewal_count: u32,
     pub grace_period_end: u64,
@@ -370,6 +372,8 @@ fn load_license(env: &Env, buyer: &Address, asset_id: u64) -> Option<License> {
         license_type: legacy.license_type,
         purchased_at: legacy.purchased_at,
         calls_remaining: legacy.calls_remaining,
+        calls_used: 0,
+        last_used: 0,
         expires_at: 0,
         renewal_count: 0,
         grace_period_end: 0,
@@ -670,6 +674,8 @@ impl MarketplaceContract {
             license_type: asset.license.clone(),
             purchased_at: env.ledger().timestamp(),
             calls_remaining,
+            calls_used: 0,
+            last_used: 0,
             expires_at: 0,
             renewal_count: 0,
             grace_period_end: 0,
@@ -1355,6 +1361,8 @@ impl MarketplaceContract {
             license_type: LicenseType::Subscription,
             purchased_at: now,
             calls_remaining: 0,
+            calls_used: 0,
+            last_used: 0,
             expires_at,
             renewal_count: 0,
             grace_period_end,
@@ -1536,6 +1544,80 @@ impl MarketplaceContract {
             return SubscriptionStatus::Active;
         }
         SubscriptionStatus::Expired
+    }
+
+    // ── Usage Metering ──────────────────────────────────────────────────
+
+    pub fn record_usage(env: Env, caller: Address, asset_id: u64) -> Result<u64, MarketplaceError> {
+        caller.require_auth();
+        let mut license = load_license(&env, &caller, asset_id).ok_or(MarketplaceError::LicenseNotFound)?;
+        
+        if license.license_type != LicenseType::UsageBased {
+            return Ok(u64::MAX);
+        }
+        
+        if license.calls_remaining == 0 {
+            return Err(MarketplaceError::LicenseExhausted);
+        }
+        
+        license.calls_remaining -= 1;
+        license.calls_used += 1;
+        license.last_used = env.ledger().timestamp();
+        
+        let license_key = license_v2_key(caller.clone(), asset_id);
+        env.storage().persistent().set(&license_key, &license);
+        
+        env.events().publish((symbol_short!("USAGE"), asset_id, caller.clone()), license.calls_remaining);
+        
+        Ok(license.calls_remaining)
+    }
+
+    pub fn top_up_calls(env: Env, buyer: Address, asset_id: u64, bundle_size: u64, token: Address) -> Result<u64, MarketplaceError> {
+        buyer.require_auth();
+        
+        if bundle_size != 25 && bundle_size != 100 && bundle_size != 500 {
+            return Err(MarketplaceError::InvalidBundleSize);
+        }
+        
+        let mut license = load_license(&env, &buyer, asset_id).ok_or(MarketplaceError::LicenseNotFound)?;
+        
+        if license.license_type != LicenseType::UsageBased {
+            return Err(MarketplaceError::InvalidAssetState);
+        }
+        
+        let price = Self::bundle_price(env.clone(), asset_id, bundle_size);
+        
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        token_client.transfer(&buyer, &env.current_contract_address(), &price);
+        
+        license.calls_remaining += bundle_size;
+        
+        let license_key = license_v2_key(buyer.clone(), asset_id);
+        env.storage().persistent().set(&license_key, &license);
+        
+        env.events().publish((symbol_short!("TOP_UP"), asset_id, buyer.clone()), bundle_size);
+        
+        Ok(license.calls_remaining)
+    }
+
+    pub fn get_calls_remaining(env: Env, buyer: Address, asset_id: u64) -> u64 {
+        if let Some(license) = load_license(&env, &buyer, asset_id) {
+            license.calls_remaining
+        } else {
+            0
+        }
+    }
+
+    pub fn bundle_price(env: Env, asset_id: u64, bundle_size: u64) -> i128 {
+        let asset = load_asset(&env, asset_id).expect("asset not found");
+        let base_price = asset.price;
+        
+        match bundle_size {
+            25 => base_price / 4,
+            100 => base_price,
+            500 => base_price * 4,
+            _ => base_price,
+        }
     }
 }
 
