@@ -9,7 +9,6 @@ const logger = require("../middleware/logger");
 
 const DEFAULT_MAX_AGE = 300000; // 5 minutes in ms
 const STALE_THRESHOLD = 180000; // 3 minutes before considering stale
-const FALLBACK_DELAY = 5000; // Wait before trying fallback
 const HEALTH_WINDOW = 3600000; // 1 hour for tracking source health
 
 class StalenessGuard {

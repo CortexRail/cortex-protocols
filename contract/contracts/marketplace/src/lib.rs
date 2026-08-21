@@ -6,7 +6,10 @@ mod errors;
 pub use errors::MarketplaceError;
 
 mod pricing;
-pub use pricing::{PriceCommitment, MultiAssetListing, PricingError};
+pub use pricing::{
+    PriceCommitment, MultiAssetListing, PricingError,
+    validate_commitment_ledger, validate_token_accepted, check_slippage,
+};
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Map, String,

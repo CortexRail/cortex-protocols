@@ -9,16 +9,13 @@
  */
 
 const request = require("supertest");
-const { Keypair } = require("@stellar/stellar-sdk");
 const app = require("../../app");
 const { seed } = require("../../db/seed");
 const assetRepository = require("../../repositories/assetRepository");
-const licenseRepository = require("../../repositories/licenseRepository");
 const {
   truncateAll,
   closePool,
   OWNER_A,
-  OWNER_B,
 } = require("../helpers/testDb");
 
 const USDC_ADDRESS = "GBUSDUSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDS";
@@ -139,7 +136,7 @@ describe("Multi-Token Purchase Flow", () => {
         .get(`/api/v1/assets/${asset.id}/price?token=${USDC_ADDRESS}`)
         .expect(200);
 
-      const { commitment, oraclePrice } = res.body;
+      const { commitment } = res.body;
 
       // The max_price should be >= oracle price (with slippage buffer)
       // Assuming 1 USDC = ~1 USD, and 5% slippage:
