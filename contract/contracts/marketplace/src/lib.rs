@@ -46,6 +46,10 @@ const AUCTION_COUNT: Symbol = symbol_short!("AUCT_CNT");
 const COMMITMENTS: Symbol = symbol_short!("COMMITS");
 const BIDS: Symbol = symbol_short!("BIDS");
 
+const POLICIES: Symbol = symbol_short!("POLICIES");
+const PROPOSALS: Symbol = symbol_short!("PROPOSALS");
+const PROPOSAL_COUNT: Symbol = symbol_short!("PROP_CNT");
+
 /// Hard cap on concurrently listed assets.
 const MAX_ASSETS: u64 = 10_000;
 
@@ -142,6 +146,36 @@ pub enum SubscriptionStatus {
     GracePeriod,
     Expired,
     Cancelled,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApprovalPolicy {
+    pub org: Address,
+    pub threshold_amount: i128,
+    pub required_signers: u32,
+    pub signers: Vec<Address>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProposalStatus {
+    Pending,
+    Approved,
+    Rejected(u32),
+    Expired,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchaseProposal {
+    pub proposal_id: u64,
+    pub org: Address,
+    pub asset_id: u64,
+    pub license_type: LicenseType,
+    pub token: Address,
+    pub status: ProposalStatus,
+    pub signers_approved: Vec<Address>,
 }
 
 /// Status of an escrow hold
@@ -400,6 +434,14 @@ fn commitment_key(auction_id: u64, bidder: &Address) -> (Symbol, u64, Address) {
 
 fn bid_key(auction_id: u64, bidder: &Address) -> (Symbol, u64, Address) {
     (BIDS, auction_id, bidder.clone())
+}
+
+fn policy_key(org: &Address) -> (Symbol, Address) {
+    (POLICIES, org.clone())
+}
+
+fn proposal_key(proposal_id: u64) -> (Symbol, u64) {
+    (PROPOSALS, proposal_id)
 }
 
 fn load_auction(env: &Env, auction_id: u64) -> Result<Auction, MarketplaceError> {
@@ -709,6 +751,166 @@ impl MarketplaceContract {
             .publish((symbol_short!("PURCHASED"), buyer), (license_id, asset_id, asset.price));
 
         license
+    }
+
+    // ── Multi-Signature Approvals ─────────────────────────────────────────
+
+    pub fn create_approval_policy(
+        env: Env,
+        org: Address,
+        threshold_amount: i128,
+        required_signers: u32,
+        signers: Vec<Address>,
+    ) -> Result<(), MarketplaceError> {
+        org.require_auth();
+
+        if required_signers == 0 || signers.len() < required_signers {
+            return Err(MarketplaceError::InvalidThreshold);
+        }
+
+        let policy = ApprovalPolicy {
+            org: org.clone(),
+            threshold_amount,
+            required_signers,
+            signers,
+        };
+
+        env.storage().persistent().set(&policy_key(&org), &policy);
+        Ok(())
+    }
+
+    pub fn propose_purchase(
+        env: Env,
+        org: Address,
+        asset_id: u64,
+        license_type: LicenseType,
+        token: Address,
+    ) -> Result<u64, MarketplaceError> {
+        org.require_auth();
+
+        let count: u64 = env.storage().instance().get(&PROPOSAL_COUNT).unwrap_or(0u64);
+        let proposal_id = count + 1;
+
+        let proposal = PurchaseProposal {
+            proposal_id,
+            org,
+            asset_id,
+            license_type,
+            token,
+            status: ProposalStatus::Pending,
+            signers_approved: Vec::new(&env),
+        };
+
+        env.storage().persistent().set(&proposal_key(proposal_id), &proposal);
+        env.storage().instance().set(&PROPOSAL_COUNT, &proposal_id);
+
+        Ok(proposal_id)
+    }
+
+    pub fn approve_purchase(
+        env: Env,
+        signer: Address,
+        proposal_id: u64,
+    ) -> Result<(), MarketplaceError> {
+        signer.require_auth();
+
+        let mut proposal: PurchaseProposal = env
+            .storage()
+            .persistent()
+            .get(&proposal_key(proposal_id))
+            .ok_or(MarketplaceError::ProposalNotFound)?;
+
+        if proposal.status != ProposalStatus::Pending {
+            return Err(MarketplaceError::ProposalNotPending);
+        }
+
+        let policy: ApprovalPolicy = env
+            .storage()
+            .persistent()
+            .get(&policy_key(&proposal.org))
+            .ok_or(MarketplaceError::PolicyNotFound)?;
+
+        if !policy.signers.contains(&signer) {
+            return Err(MarketplaceError::NotASigner);
+        }
+
+        if proposal.signers_approved.contains(&signer) {
+            return Err(MarketplaceError::SignerAlreadyApproved);
+        }
+
+        proposal.signers_approved.push_back(signer);
+
+        if proposal.signers_approved.len() >= policy.required_signers {
+            proposal.status = ProposalStatus::Approved;
+            env.storage().persistent().set(&proposal_key(proposal_id), &proposal);
+
+            let asset = load_asset(&env, proposal.asset_id).ok_or(MarketplaceError::AssetNotFound)?;
+            Self::purchase_license_for_version(
+                env,
+                proposal.org,
+                asset.clone(),
+                proposal.asset_id,
+                asset.version,
+                proposal.token,
+            );
+        } else {
+            env.storage().persistent().set(&proposal_key(proposal_id), &proposal);
+        }
+
+        Ok(())
+    }
+
+    pub fn reject_purchase(
+        env: Env,
+        signer: Address,
+        proposal_id: u64,
+        reason_code: u32,
+    ) -> Result<(), MarketplaceError> {
+        signer.require_auth();
+
+        let mut proposal: PurchaseProposal = env
+            .storage()
+            .persistent()
+            .get(&proposal_key(proposal_id))
+            .ok_or(MarketplaceError::ProposalNotFound)?;
+
+        if proposal.status != ProposalStatus::Pending {
+            return Err(MarketplaceError::ProposalNotPending);
+        }
+
+        let policy: ApprovalPolicy = env
+            .storage()
+            .persistent()
+            .get(&policy_key(&proposal.org))
+            .ok_or(MarketplaceError::PolicyNotFound)?;
+
+        if !policy.signers.contains(&signer) {
+            return Err(MarketplaceError::NotASigner);
+        }
+
+        proposal.status = ProposalStatus::Rejected(reason_code);
+        env.storage().persistent().set(&proposal_key(proposal_id), &proposal);
+
+        Ok(())
+    }
+
+    pub fn expire_stale_proposals(
+        env: Env,
+        proposal_ids: Vec<u64>,
+    ) -> Result<(), MarketplaceError> {
+        for id in proposal_ids.iter() {
+            if let Some(mut proposal) = env
+                .storage()
+                .persistent()
+                .get::<_, PurchaseProposal>(&proposal_key(id))
+            {
+                if proposal.status == ProposalStatus::Pending {
+                    proposal.status = ProposalStatus::Expired;
+                    env.storage().persistent().set(&proposal_key(id), &proposal);
+                }
+            }
+        }
+        Ok(())
     }
 
     // ── Sealed-Bid Auctions ──────────────────────────────────────────────

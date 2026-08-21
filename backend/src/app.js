@@ -58,6 +58,8 @@ app.get("/health", (_req, res) => {
 });
 app.use("/health", healthRouter);
 
+const approvalRoutes = require("./routes/approvalRoutes");
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/v1/assets", assetsRouter);
 app.use("/api/v1/agents", agentsRouter);
@@ -73,7 +75,7 @@ app.use("/api/v1/admin", complianceRouter);
 app.use("/api/v1/protocol", protocolRouter);
 app.use("/api/v1/escrow", escrowRouter);
 app.use("/api/v1/disputes", disputesRouter);
-app.use("/api/v1/subscriptions", subscriptionsRouter);
+app.use("/api/v1", approvalRoutes);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);
