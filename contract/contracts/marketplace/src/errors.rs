@@ -98,8 +98,23 @@ pub enum MarketplaceError {
     /// Auction parameters are invalid (e.g. zero capacity or duration).
     InvalidAuctionParams = 30,
 
+    /// License does not exist.
+    LicenseNotFound = 31,
+
+    /// Subscription period is invalid.
+    InvalidSubscriptionPeriod = 32,
+
+    /// Subscription has expired and grace period ended.
+    SubscriptionExpired = 33,
+
+    /// Subscription is not active.
+    SubscriptionNotActive = 34,
+
+    /// Error calculating prorated amount.
+    ProrationError = 35,
+
     /// Bidder has already revealed a bid for this auction.
-    BidAlreadyRevealed = 31,
+    BidAlreadyRevealed = 36,
 
     /// Reveal uses a different payment token than the auction escrow.
     TokenMismatch = 32,

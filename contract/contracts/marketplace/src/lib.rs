@@ -125,6 +125,27 @@ pub struct License {
     pub license_type: LicenseType,
     pub purchased_at: u64,
     pub calls_remaining: u64,
+    pub expires_at: u64,
+    pub renewal_count: u32,
+    pub grace_period_end: u64,
+    pub auto_renew: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SubscriptionPeriod {
+    Monthly,
+    Quarterly,
+    Annual,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SubscriptionStatus {
+    Active,
+    GracePeriod,
+    Expired,
+    Cancelled,
 }
 
 #[contracttype]
@@ -389,6 +410,10 @@ fn load_license(env: &Env, buyer: &Address, asset_id: u64) -> Option<License> {
         license_type: legacy.license_type,
         purchased_at: legacy.purchased_at,
         calls_remaining: legacy.calls_remaining,
+        expires_at: 0,
+        renewal_count: 0,
+        grace_period_end: 0,
+        auto_renew: false,
     };
     env.storage().persistent().set(&v2_key, &license);
     Some(license)
@@ -693,6 +718,10 @@ impl MarketplaceContract {
             license_type: asset.license.clone(),
             purchased_at: env.ledger().timestamp(),
             calls_remaining,
+            expires_at: 0,
+            renewal_count: 0,
+            grace_period_end: 0,
+            auto_renew: false,
         };
 
         let license_key = license_v2_key(buyer.clone(), asset_id);
@@ -1478,6 +1507,243 @@ impl MarketplaceContract {
     /// Check if an address is a registered arbitrator.
     pub fn is_arbitrator(env: Env, address: Address) -> bool {
         get_arbitrators_list(&env).contains(&address)
+    }
+
+    // ── Subscriptions ──────────────────────────────────────────────────────
+
+    pub fn subscribe(
+        env: Env,
+        buyer: Address,
+        asset_id: u64,
+        token: Address,
+        period: SubscriptionPeriod,
+    ) -> Result<License, MarketplaceError> {
+        buyer.require_auth();
+
+        let asset = load_asset(&env, asset_id).ok_or(MarketplaceError::AssetNotFound)?;
+        if !asset.is_active {
+            return Err(MarketplaceError::AssetInactive);
+        }
+        if asset.owner == buyer {
+            return Err(MarketplaceError::SelfPurchase);
+        }
+        if asset.license != LicenseType::Subscription {
+            return Err(MarketplaceError::InvalidAssetState);
+        }
+
+        let price_multiplier = match period {
+            SubscriptionPeriod::Monthly => 1,
+            SubscriptionPeriod::Quarterly => 3,
+            SubscriptionPeriod::Annual => 12,
+        };
+        let amount = asset.price * price_multiplier;
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        token_client.transfer(&buyer, &env.current_contract_address(), &amount);
+
+        let duration_secs: u64 = match period {
+            SubscriptionPeriod::Monthly => 30 * 24 * 60 * 60,
+            SubscriptionPeriod::Quarterly => 90 * 24 * 60 * 60,
+            SubscriptionPeriod::Annual => 365 * 24 * 60 * 60,
+        };
+
+        let now = env.ledger().timestamp();
+        let expires_at = now + duration_secs;
+        let grace_period_end = expires_at + 48 * 60 * 60; // 48 hours
+
+        let l_count: u64 = env.storage().instance().get(&LICENSE_COUNT).unwrap_or(0u64);
+        let license_id = l_count + 1;
+        env.storage().instance().set(&LICENSE_COUNT, &license_id);
+
+        let license = License {
+            id: license_id,
+            asset_id,
+            asset_version: asset.version,
+            buyer: buyer.clone(),
+            license_type: LicenseType::Subscription,
+            purchased_at: now,
+            calls_remaining: 0,
+            expires_at,
+            renewal_count: 0,
+            grace_period_end,
+            auto_renew: true,
+        };
+
+        let v2_key = license_v2_key(buyer.clone(), asset_id);
+        env.storage().persistent().set(&v2_key, &license);
+
+        env.events().publish(
+            (Symbol::new(&env, "SUBSCRIBED"), buyer.clone()),
+            (asset_id, period.clone(), expires_at),
+        );
+
+        Ok(license)
+    }
+
+    pub fn renew_license(
+        env: Env,
+        buyer: Address,
+        asset_id: u64,
+        token: Address,
+        period: SubscriptionPeriod,
+    ) -> Result<License, MarketplaceError> {
+        buyer.require_auth();
+
+        let mut license = load_license(&env, &buyer, asset_id).ok_or(MarketplaceError::LicenseNotFound)?;
+        if license.license_type != LicenseType::Subscription {
+            return Err(MarketplaceError::InvalidAssetState);
+        }
+
+        let asset = load_asset(&env, asset_id).ok_or(MarketplaceError::AssetNotFound)?;
+
+        let price_multiplier = match period {
+            SubscriptionPeriod::Monthly => 1,
+            SubscriptionPeriod::Quarterly => 3,
+            SubscriptionPeriod::Annual => 12,
+        };
+        let amount = asset.price * price_multiplier;
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        token_client.transfer(&buyer, &env.current_contract_address(), &amount);
+
+        let duration_secs: u64 = match period {
+            SubscriptionPeriod::Monthly => 30 * 24 * 60 * 60,
+            SubscriptionPeriod::Quarterly => 90 * 24 * 60 * 60,
+            SubscriptionPeriod::Annual => 365 * 24 * 60 * 60,
+        };
+
+        let now = env.ledger().timestamp();
+        let base_time = if license.expires_at > now { license.expires_at } else { now };
+        
+        license.expires_at = base_time + duration_secs;
+        license.grace_period_end = license.expires_at + 48 * 60 * 60;
+        license.renewal_count += 1;
+        license.auto_renew = true;
+
+        let v2_key = license_v2_key(buyer.clone(), asset_id);
+        env.storage().persistent().set(&v2_key, &license);
+
+        env.events().publish(
+            (Symbol::new(&env, "RENEWED"), buyer.clone()),
+            (asset_id, period.clone(), license.expires_at),
+        );
+
+        Ok(license)
+    }
+
+    pub fn renew_with_proration(
+        env: Env,
+        buyer: Address,
+        asset_id: u64,
+        token: Address,
+        new_period: SubscriptionPeriod,
+    ) -> Result<License, MarketplaceError> {
+        buyer.require_auth();
+
+        let mut license = load_license(&env, &buyer, asset_id).ok_or(MarketplaceError::LicenseNotFound)?;
+        let asset = load_asset(&env, asset_id).ok_or(MarketplaceError::AssetNotFound)?;
+        let now = env.ledger().timestamp();
+
+        if license.expires_at <= now {
+            return Err(MarketplaceError::SubscriptionExpired); 
+        }
+
+        let remaining_secs = license.expires_at - now;
+        let monthly_secs = 30 * 24 * 60 * 60;
+        let credit_value = ((remaining_secs as u128 * asset.price as u128) / monthly_secs as u128) as i128;
+
+        let price_multiplier = match new_period {
+            SubscriptionPeriod::Monthly => 1,
+            SubscriptionPeriod::Quarterly => 3,
+            SubscriptionPeriod::Annual => 12,
+        };
+        let new_price = asset.price * price_multiplier;
+
+        let amount_to_pay = if new_price > credit_value {
+            new_price - credit_value
+        } else {
+            0
+        };
+
+        if amount_to_pay > 0 {
+            let token_client = soroban_sdk::token::Client::new(&env, &token);
+            token_client.transfer(&buyer, &env.current_contract_address(), &amount_to_pay);
+        }
+
+        let new_duration_secs: u64 = match new_period {
+            SubscriptionPeriod::Monthly => monthly_secs,
+            SubscriptionPeriod::Quarterly => 90 * 24 * 60 * 60,
+            SubscriptionPeriod::Annual => 365 * 24 * 60 * 60,
+        };
+
+        license.expires_at = now + new_duration_secs;
+        if new_price <= credit_value {
+             let extra_credit = credit_value - new_price;
+             let extra_secs = ((extra_credit as u128 * monthly_secs as u128) / asset.price as u128) as u64;
+             license.expires_at += extra_secs;
+        }
+
+        license.grace_period_end = license.expires_at + 48 * 60 * 60;
+        license.renewal_count += 1;
+        license.auto_renew = true;
+
+        let v2_key = license_v2_key(buyer.clone(), asset_id);
+        env.storage().persistent().set(&v2_key, &license);
+
+        env.events().publish(
+            (Symbol::new(&env, "RENEWED"), buyer.clone()),
+            (asset_id, new_period.clone(), license.expires_at),
+        );
+
+        Ok(license)
+    }
+
+    pub fn cancel_subscription(env: Env, buyer: Address, asset_id: u64) -> Result<(), MarketplaceError> {
+        buyer.require_auth();
+
+        let mut license = load_license(&env, &buyer, asset_id).ok_or(MarketplaceError::LicenseNotFound)?;
+        if !license.auto_renew {
+            return Err(MarketplaceError::SubscriptionNotActive);
+        }
+
+        license.auto_renew = false;
+        let v2_key = license_v2_key(buyer.clone(), asset_id);
+        env.storage().persistent().set(&v2_key, &license);
+
+        env.events().publish(
+            (Symbol::new(&env, "CANCELLED"), buyer.clone()),
+            (asset_id, license.expires_at),
+        );
+
+        Ok(())
+    }
+
+    pub fn is_license_valid(env: Env, buyer: Address, asset_id: u64) -> bool {
+        if let Some(license) = load_license(&env, &buyer, asset_id) {
+            if license.license_type == LicenseType::Subscription {
+                let now = env.ledger().timestamp();
+                return now <= license.grace_period_end;
+            }
+            return true;
+        }
+        false
+    }
+
+    pub fn get_subscription_status(env: Env, buyer: Address, asset_id: u64) -> SubscriptionStatus {
+        if let Some(license) = load_license(&env, &buyer, asset_id) {
+            let now = env.ledger().timestamp();
+            if !license.auto_renew && now > license.grace_period_end {
+                return SubscriptionStatus::Cancelled;
+            }
+            if now > license.grace_period_end {
+                return SubscriptionStatus::Expired;
+            }
+            if now > license.expires_at {
+                return SubscriptionStatus::GracePeriod;
+            }
+            return SubscriptionStatus::Active;
+        }
+        SubscriptionStatus::Expired
     }
 }
 
