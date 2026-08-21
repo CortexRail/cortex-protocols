@@ -16,6 +16,7 @@ const complianceRouter = require("./routes/compliance");
 const protocolRouter = require("./routes/protocol");
 const escrowRouter = require("./routes/escrow");
 const disputesRouter = require("./routes/disputes");
+const subscriptionsRouter = require("./routes/subscriptions");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -61,6 +62,7 @@ app.use("/api/v1/admin", complianceRouter);
 app.use("/api/v1/protocol", protocolRouter);
 app.use("/api/v1/escrow", escrowRouter);
 app.use("/api/v1/disputes", disputesRouter);
+app.use("/api/v1/subscriptions", subscriptionsRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);
