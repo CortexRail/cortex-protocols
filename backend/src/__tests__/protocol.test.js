@@ -13,6 +13,7 @@ const {
 const QuoteManager = require("../protocol/QuoteManager");
 const StreamNegotiator = require("../protocol/StreamNegotiator");
 const MeteringEngine = require("../protocol/MeteringEngine");
+const AttestationBuilder = require("../attestation/AttestationBuilder");
 const StreamMonitor = require("../protocol/StreamMonitor");
 const BatchSettler = require("../protocol/BatchSettler");
 const CortexAgentSDK = require("../sdk/CortexAgentSDK");
@@ -93,7 +94,13 @@ describe("Agent Payment Protocol - QuoteManager", () => {
 describe("Agent Payment Protocol - MeteringEngine Concurrency", () => {
   it("is atomic under concurrent requests (race condition test)", async () => {
     const buyer = OWNER_A;
-    const recipient = OWNER_B;
+    // Metering now requires a seller-signed attestation per call, so the
+    // recipient has to be a key this test can actually sign with rather than a
+    // fixture address. A Stellar G... address *is* the Ed25519 key the
+    // attestation is verified against, so recipient and signer are the same
+    // thing.
+    const sellerKeypair = Keypair.random();
+    const recipient = sellerKeypair.publicKey();
     const pricePerCall = 1000;
 
     // Create a stream row with exactly 5 remaining calls
@@ -115,10 +122,18 @@ describe("Agent Payment Protocol - MeteringEngine Concurrency", () => {
 
     const token = StreamNegotiator.issueStreamToken(stream, pricePerCall);
 
-    // Make 10 concurrent requests to MeteringEngine.meterCall
+    // Make 10 concurrent requests to MeteringEngine.meterCall, each carrying
+    // its own attestation. Distinct call indices and nonces mean the race is
+    // still decided by the stream's call budget, not by replay protection.
+    const attestationBuilder = new AttestationBuilder({ signer: sellerKeypair });
     const promises = [];
     for (let i = 0; i < 10; i++) {
-      promises.push(MeteringEngine.meterCall(token).catch((err) => err));
+      const attestation = attestationBuilder.attest({
+        streamId: 12345,
+        request: { i },
+        response: { i },
+      });
+      promises.push(MeteringEngine.meterCall(token, { attestation }).catch((err) => err));
     }
 
     const results = await Promise.all(promises);

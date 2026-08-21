@@ -5,6 +5,7 @@ members = [
   "contracts/micropayments",
   "contracts/agent_registry",
   "contracts/audit_anchor",
+  "contracts/sig_check",
 ]
 
 [workspace.dependencies]
