@@ -14,7 +14,8 @@ async function truncateAll() {
   await query(
     `TRUNCATE TABLE reports, licenses, events_log, event_cursor, streams, agents, assets,
        admin_actions, agent_bans, contract_state, dispute_votes, disputes, agent_stakes,
-       usage_events, fraud_signals, agent_funding_sources
+       usage_events, fraud_signals, agent_funding_sources,
+       attestation_leaves, attestation_batches, used_nonces
      RESTART IDENTITY CASCADE`
   );
   await query("DELETE FROM replica_heartbeat");
