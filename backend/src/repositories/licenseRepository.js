@@ -6,7 +6,7 @@ const { run, toMs, msParam, normalizePagination, buildMeta } = require("./repoUt
 
 const COLUMNS = `
   id, asset_id, asset_version, buyer, license_type, price_paid, calls_remaining,
-  expires_at, is_active, purchased_at, updated_at
+  expires_at, is_active, purchased_at, updated_at, token
 `;
 
 function mapLicense(row) {
@@ -23,6 +23,7 @@ function mapLicense(row) {
     isActive: row.is_active,
     purchasedAt: toMs(row.purchased_at),
     updatedAt: toMs(row.updated_at),
+    token: row.token || "native",
   };
 }
 
@@ -39,15 +40,16 @@ async function create(license, client) {
     pricePaid = 0,
     callsRemaining = null,
     expiresAt = null,
+    token = "native",
   } = license;
 
   const { rows } = await run(
     `INSERT INTO licenses
        (asset_id, asset_version, buyer, license_type, price_paid,
-        calls_remaining, expires_at)
+        calls_remaining, expires_at, token)
      VALUES
        ($1, $2, $3, $4, $5, $6,
-        to_timestamp($7::double precision / 1000.0))
+        to_timestamp($7::double precision / 1000.0), $8)
      RETURNING ${COLUMNS}`,
     [
       assetId,
@@ -57,6 +59,7 @@ async function create(license, client) {
       pricePaid,
       callsRemaining,
       msParam(expiresAt),
+      token,
     ],
     client
   );

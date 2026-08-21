@@ -2,6 +2,7 @@ const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
 const morgan = require("morgan");
+const rateLimit = require("express-rate-limit");
 
 const assetsRouter = require("./routes/assets");
 const agentsRouter = require("./routes/agents");
@@ -16,7 +17,7 @@ const complianceRouter = require("./routes/compliance");
 const protocolRouter = require("./routes/protocol");
 const escrowRouter = require("./routes/escrow");
 const disputesRouter = require("./routes/disputes");
-const subscriptionsRouter = require("./routes/subscriptions");
+const pricingRouter = require("./routes/pricing");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -34,6 +35,14 @@ app.use(
 );
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(limiter);
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "2mb" }));
@@ -57,6 +66,8 @@ app.use("/api/v1/licenses", licensesRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/stellar", stellarRouter);
 app.use("/api/v1/internal", internalRouter);
+app.use("/api/v1/internal/pricing", pricingRouter);
+app.use("/api/v1/pricing", pricingRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/admin", complianceRouter);
 app.use("/api/v1/protocol", protocolRouter);
