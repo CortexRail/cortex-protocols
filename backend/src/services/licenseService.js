@@ -75,6 +75,20 @@ async function purchaseLicense({ assetId, buyer, assetVersion }) {
       );
     }
 
+    // Route through approval workflow if policy threshold is exceeded
+    const approvalWorkflowService = require("./approvalWorkflowService");
+    const policy = await approvalWorkflowService.getPolicy(buyer);
+    if (policy && asset.price > policy.threshold) {
+      const proposal = await approvalWorkflowService.proposePurchase({
+        orgId: buyer,
+        assetId: asset.id,
+        assetVersion: selectedVersion,
+        buyer,
+        price: asset.price
+      });
+      return { proposal, message: "Purchase requires approval. Proposal created." };
+    }
+
     // Bump the counter first so a failed license insert exercises a real
     // rollback of prior writes rather than short-circuiting before them.
     const usageCount = await assetRepository.incrementUsage(assetId, client);
