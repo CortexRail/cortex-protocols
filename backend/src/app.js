@@ -2,6 +2,7 @@ const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
 const morgan = require("morgan");
+const rateLimit = require("express-rate-limit");
 
 const assetsRouter = require("./routes/assets");
 const agentsRouter = require("./routes/agents");
@@ -34,6 +35,14 @@ app.use(
 );
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(limiter);
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "2mb" }));
