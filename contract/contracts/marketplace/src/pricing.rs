@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Vec};
+use soroban_sdk::{contracttype, Address, String, Vec};
 
 /// Price commitment for multi-asset settlement with slippage protection
 #[contracttype]
