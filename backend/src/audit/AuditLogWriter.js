@@ -55,6 +55,9 @@ const EVENT_TYPES = {
   REPORT_DISMISSED: "REPORT_DISMISSED",
   REPORT_UNDER_REVIEW: "REPORT_UNDER_REVIEW",
 
+  // Automated fraud detection
+  FRAUD_SIGNAL_DISMISSED: "FRAUD_SIGNAL_DISMISSED",
+
   // License lifecycle
   LICENSE_REVOKED: "LICENSE_REVOKED",
   LICENSE_EXPIRED: "LICENSE_EXPIRED",
@@ -169,7 +172,7 @@ class AuditLogWriter {
    * Internal: perform the actual INSERT inside an already-open client/tx.
    * @private
    */
-  async _appendWithClient(client, { eventType, actor, subjectId, payload, payloadJson, ledger }) {
+  async _appendWithClient(client, { eventType, actor, subjectId, payload: _payload, payloadJson, ledger }) {
     // Fetch current tail of the chain.
     const tailResult = await client.query(
       "SELECT seq, entry_hash FROM audit_log ORDER BY seq DESC LIMIT 1"

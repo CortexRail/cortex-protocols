@@ -281,7 +281,7 @@ router.get(
 
     // Constant-time token comparison.
     const { createHash, timingSafeEqual } = require("crypto");
-const { logger } = require("../utils/logger");
+
     const provided = createHash("sha256").update(String(req.query.token)).digest();
     const stored = createHash("sha256").update(String(row.download_token)).digest();
     if (!timingSafeEqual(provided, stored)) {

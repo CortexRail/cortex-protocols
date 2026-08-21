@@ -117,7 +117,7 @@ async function inspectSettlement(id) {
   
   const settlement = await withTransaction(async (client) => {
     const settlementRepository = require("../repositories/settlementRepository");
-const { logger } = require("../utils/logger");
+
     return settlementRepository.findById(id, client);
   });
   

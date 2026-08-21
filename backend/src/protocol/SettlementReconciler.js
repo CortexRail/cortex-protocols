@@ -46,7 +46,7 @@ async function getOnChainSettlementStatus(streamIds) {
   try {
     // Use a dummy caller key for view-only calls
     const { Keypair } = require("@stellar/stellar-sdk");
-const { logger } = require("../utils/logger");
+
     const dummyKeypair = Keypair.random();
     
     const result = await viewContract(

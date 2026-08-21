@@ -39,7 +39,7 @@ const fundRateLimiter = rateLimit({
 const txRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
-  keyGenerator: (req) => req.params.publicKey || req.ip,
+  keyGenerator: (req) => req.params.publicKey || req.headers['x-forwarded-for'] || req.socket.remoteAddress,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests for this public key. Please wait before retrying." },

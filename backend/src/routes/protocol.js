@@ -8,6 +8,7 @@ const QuoteManager = require("../protocol/QuoteManager");
 const StreamNegotiator = require("../protocol/StreamNegotiator");
 const MeteringEngine = require("../protocol/MeteringEngine");
 const StreamMonitor = require("../protocol/StreamMonitor");
+const AuctionEngine = require("../protocol/AuctionEngine");
 const { CONTRACT_IDS } = require("../config/stellar");
 const { viewContract, invokeContract } = require("../services/stellarService");
 const streamRepository = require("../repositories/streamRepository");
@@ -38,7 +39,8 @@ router.get("/events/subscribe", (req, res) => {
 /**
  * POST /api/v1/protocol/handshake
  * Buyer agent presents public key + desired asset ID.
- * Returns list price, available license types, and a signed quote.
+ * Capacity-constrained assets are routed into the auction flow; everything
+ * else returns list price, available license types, and a signed quote.
  */
 router.post(
   "/handshake",
@@ -54,9 +56,18 @@ router.post(
       return res.status(404).json({ error: "Asset not found" });
     }
 
+    if (QuoteManager.shouldAuction(asset)) {
+      return res.json({
+        mode: "auction",
+        reason: QuoteManager.routeAsset(asset).reason,
+        assetId: Number(assetId),
+      });
+    }
+
     const quote = QuoteManager.generateQuote(publicKey, assetId, asset.price);
 
     res.json({
+      mode: "quote",
       price: asset.price,
       availableLicenseTypes: [asset.licenseType || "UsageBased"],
       quote,
@@ -66,7 +77,8 @@ router.post(
 
 /**
  * POST /api/v1/protocol/quote
- * Get signed price quote for an asset.
+ * Get signed price quote for an asset. Capacity-constrained assets refuse a
+ * direct quote and point the buyer at the auction flow instead.
  */
 router.post(
   "/quote",
@@ -80,6 +92,14 @@ router.post(
     const asset = await assetRepository.findById(assetId);
     if (!asset) {
       return res.status(404).json({ error: "Asset not found" });
+    }
+
+    if (QuoteManager.shouldAuction(asset)) {
+      return res.status(409).json({
+        error: "Asset is capacity-constrained and must be priced via sealed-bid auction",
+        mode: "auction",
+        assetId: Number(assetId),
+      });
     }
 
     const quote = QuoteManager.generateQuote(publicKey, assetId, asset.price);
@@ -190,7 +210,7 @@ router.post(
       pricePerCall: agreedRate,
     });
 
-    const streamToken = StreamNegotiator.issueStreamToken(saved, agreedRate);
+    const streamToken = StreamNegotiator.issueStreamToken(saved, agreedRate, assetId);
     res.status(201).json({
       streamToken,
       stream: saved,
@@ -212,8 +232,23 @@ router.post(
       return res.status(401).json({ error: "stream_token is required" });
     }
 
+    // Hash whatever the caller metered, minus the transport fields, so replay
+    // detection has something to compare. A client may send `payloadHash`
+    // itself when the real payload must not reach us.
+    const body = req.body || {};
+    const payload = { ...body };
+    delete payload.stream_token;
+    delete payload.streamToken;
+    delete payload.payloadHash;
+    const payloadHash =
+      typeof body.payloadHash === "string" && body.payloadHash.length
+        ? body.payloadHash
+        : MeteringEngine.hashPayload(payload);
+
     try {
-      const { calls_remaining, settle_now, stream } = await MeteringEngine.meterCall(token);
+      const { calls_remaining, settle_now, stream } = await MeteringEngine.meterCall(token, {
+        payloadHash,
+      });
       StreamMonitor.checkStreamAndAlert(stream);
       res.json({ calls_remaining, settle_now });
     } catch (err) {
@@ -334,6 +369,93 @@ router.post(
       success: true,
       stream: updated,
     });
+  })
+);
+
+/**
+ * GET /api/v1/protocol/auctions/:id/events
+ * SSE endpoint: streams auction phase transitions (REVEAL_OPENED,
+ * AUCTION_UPDATED, SETTLED) to subscribing agents.
+ */
+router.get(
+  "/auctions/:id/events",
+  [param("id").isInt({ min: 1 })],
+  validate,
+  (req, res) => {
+    AuctionEngine.registerClient(req, res);
+  }
+);
+
+/**
+ * GET /api/v1/protocol/auctions/:id
+ * Current auction status. Falls back to the engine's local mirror when the
+ * chain is unavailable.
+ */
+router.get(
+  "/auctions/:id",
+  [param("id").isInt({ min: 1 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const auctionId = Number(req.params.id);
+    const tracked = AuctionEngine._trackedAuctions.get(auctionId);
+
+    let auction = null;
+    const contractId = CONTRACT_IDS.marketplace;
+    if (contractId && getServerKeypair()) {
+      try {
+        const raw = await viewContract(
+          contractId,
+          "get_auction",
+          [nativeToScVal(BigInt(auctionId), { type: "u64" })],
+          getServerKeypair().publicKey()
+        );
+        if (raw) {
+          auction = {
+            id: Number(raw.id),
+            assetId: Number(raw.asset_id),
+            seller: raw.seller,
+            capacity: Number(raw.capacity),
+            minBid: Number(raw.min_bid),
+            durationLedgers: Number(raw.duration_ledgers),
+            openLedger: Number(raw.open_ledger),
+            revealEnd: raw.reveal_end ? Number(raw.reveal_end) : null,
+            phase: String(raw.phase),
+            token: raw.token || null,
+            revealedCount: raw.revealed ? raw.revealed.length : 0,
+            clearingPrice: raw.clearing_price != null ? Number(raw.clearing_price) : null,
+            settledAt: raw.settled_at ? Number(raw.settled_at) : null,
+          };
+        }
+      } catch (err) {
+        console.warn("[ProtocolRoute] failed to fetch auction on-chain:", err.message);
+      }
+    }
+
+    if (!auction) {
+      if (tracked) {
+        auction = { ...tracked };
+      } else {
+        return res.status(404).json({ error: "Auction not found" });
+      }
+    }
+
+    res.json(auction);
+  })
+);
+
+/**
+ * POST /api/v1/protocol/auctions/:id/tick
+ * Manually evaluate the auction engine for this auction (used by operators
+ * and tests; the engine also polls on a timer).
+ */
+router.post(
+  "/auctions/:id/tick",
+  [param("id").isInt({ min: 1 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const auctionId = Number(req.params.id);
+    const transitions = await AuctionEngine.engine.tickFor(auctionId);
+    res.json({ auctionId, ...transitions });
   })
 );
 

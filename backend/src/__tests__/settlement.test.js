@@ -6,7 +6,7 @@
 const { withTransaction } = require("../db/connection");
 const settlementRepository = require("../repositories/settlementRepository");
 const SettlementLedger = require("../protocol/SettlementLedger");
-const BatchSettler = require("../protocol/BatchSettler");
+// const BatchSettler = require("../protocol/BatchSettler");
 const streamRepository = require("../repositories/streamRepository");
 
 describe("Settlement Reconciliation Engine", () => {

@@ -1,5 +1,5 @@
 const js = require("@eslint/js");
-const globals = require("globals");
+const { node, jest } = require("globals");
 
 module.exports = [
   {
@@ -11,7 +11,10 @@ module.exports = [
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "commonjs",
-      globals: globals.node,
+      globals: {
+        ...node,
+        logger: "readonly",
+      },
     },
     rules: {
       "no-unused-vars": [
@@ -25,9 +28,9 @@ module.exports = [
     },
   },
   {
-    files: ["src/__tests__/**/*.js"],
+    files: ["src/**/__tests__/**/*.js", "src/**/*.test.js"],
     languageOptions: {
-      globals: globals.jest,
+      globals: jest,
     },
   },
 ];

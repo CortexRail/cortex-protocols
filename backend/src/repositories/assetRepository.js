@@ -43,6 +43,7 @@ function mapAsset(row) {
     usageCount: row.usage_count,
     isActive: row.is_active,
     tags: row.tags,
+    capacity: Number(row.capacity || 0),
     flagged: row.flagged,
     flaggedAt: toMs(row.flagged_at),
     createdAt: toMs(row.created_at),
@@ -321,6 +322,7 @@ async function update(id, patch, client) {
     usageCount: "usage_count",
     isActive: "is_active",
     tags: "tags",
+    capacity: "capacity",
   };
 
   const sets = [];

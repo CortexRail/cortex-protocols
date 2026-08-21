@@ -65,14 +65,21 @@ function getAgreement(buyer, assetId, rate) {
 
 /**
  * Issue a stream_token JWT.
+ *
+ * `assetId` binds the stream to what it pays for. Nothing on the `streams`
+ * table records that link, so without it a metered call cannot be attributed
+ * to an asset — which is what the fraud detectors group usage by. It is
+ * optional: tokens issued before this existed still meter fine, their usage
+ * events simply carry a null asset.
  */
-function issueStreamToken(stream, pricePerCall) {
+function issueStreamToken(stream, pricePerCall, assetId = null) {
   const payload = {
     streamId: String(stream.id),
     sender: stream.sender,
     recipient: stream.recipient,
     token: stream.token,
     pricePerCall: Number(pricePerCall),
+    assetId: assetId === null || assetId === undefined ? null : Number(assetId),
     expiresAt: Number(stream.endTime),
   };
 

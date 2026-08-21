@@ -173,6 +173,47 @@ async function expire(id, client) {
   return mapLicense(rows[0]);
 }
 
+/**
+ * Distinct buyer → asset-owner pairs from licences purchased in the window,
+ * the second edge source for the sybil relationship graph.
+ *
+ * Purchases where the buyer IS the owner are excluded here — as a graph edge
+ * that is a self-loop carrying no relationship information. Self-dealing is
+ * scored by WashUsageDetector, which looks at it directly.
+ *
+ * @param {{from: number, to: number}} window - epoch ms bounds
+ * @returns {Promise<Array<{from: string, to: string, relations: number,
+ *   value: number, firstSeen: number, lastSeen: number}>>}
+ */
+async function edgesInWindow({ from, to } = {}, client) {
+  const { rows } = await run(
+    `SELECT l.buyer AS from_address,
+            a.owner AS to_address,
+            count(*)::bigint AS relations,
+            coalesce(sum(l.price_paid), 0)::bigint AS value,
+            min(l.purchased_at) AS first_seen,
+            max(l.purchased_at) AS last_seen
+     FROM licenses l
+     JOIN assets a ON a.id = l.asset_id
+     WHERE l.purchased_at >= to_timestamp($1::double precision / 1000.0)
+       AND l.purchased_at <  to_timestamp($2::double precision / 1000.0)
+       AND a.owner <> l.buyer
+     GROUP BY l.buyer, a.owner`,
+    [msParam(from), msParam(to)],
+    client,
+    "read"
+  );
+
+  return rows.map((row) => ({
+    from: row.from_address,
+    to: row.to_address,
+    relations: Number(row.relations),
+    value: Number(row.value),
+    firstSeen: toMs(row.first_seen),
+    lastSeen: toMs(row.last_seen),
+  }));
+}
+
 module.exports = {
   create,
   findById,
@@ -181,4 +222,5 @@ module.exports = {
   updateCallsRemaining,
   consumeCall,
   expire,
+  edgesInWindow,
 };
