@@ -5,6 +5,9 @@ extern crate alloc;
 mod errors;
 pub use errors::MarketplaceError;
 
+mod pricing;
+pub use pricing::{PriceCommitment, MultiAssetListing, PricingError};
+
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Map, String,
     Symbol, Vec,

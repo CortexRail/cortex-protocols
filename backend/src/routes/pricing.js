@@ -4,17 +4,14 @@
  * GET /api/v1/internal/pricing/oracle-health
  * - Returns per-source staleness and deviation stats for monitoring
  * 
- * GET /api/v1/assets/:id/price
- * - Returns current converted price in requested token with commitment
+ * GET /api/v1/pricing/sources
+ * - Returns configured oracle sources with weights
  */
 
 const { Router } = require("express");
-const { query, param } = require("express-validator");
-const validate = require("../middleware/validate");
 const asyncHandler = require("../middleware/asyncHandler");
 const priceOracleAggregator = require("../pricing/PriceOracleAggregator");
 const stalenessGuard = require("../pricing/StalenessGuard");
-const { isValidStellarAddress } = require("../utils/stellar");
 
 const router = Router();
 
@@ -39,7 +36,7 @@ const router = Router();
  */
 router.get(
   "/oracle-health",
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (_req, res) => {
     const oracleHealth = await priceOracleAggregator.getOracleHealth();
     const sourceHealth = stalenessGuard.getAllSourceHealth();
 
