@@ -45,3 +45,13 @@ export interface PurchaseResponse {
   license: License;
   usageCount: number;
 }
+
+export interface LicenseListResponse {
+  data: License[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+  };
+}
