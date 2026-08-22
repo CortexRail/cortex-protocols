@@ -24,7 +24,7 @@ export default function RegisterAgentPage() {
     capabilities: [] as string[],
   });
 
-  const updateForm = (field: string, value: any) => {
+  const updateForm = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -215,7 +215,7 @@ export default function RegisterAgentPage() {
               <div className="p-6 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                 <h3 className="font-semibold mb-2">Ready to Register</h3>
                 <p className="text-sm text-zinc-300 mb-4">
-                  You'll be asked to sign the transaction with your Freighter wallet.
+                  You&apos;ll be asked to sign the transaction with your Freighter wallet.
                 </p>
               </div>
 

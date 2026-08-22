@@ -29,7 +29,7 @@ export default function CreateAssetPage() {
   });
   const [tagInput, setTagInput] = useState("");
 
-  const updateForm = (field: keyof AssetForm, value: any) => {
+  const updateForm = <K extends keyof AssetForm,>(field: K, value: AssetForm[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 

@@ -34,6 +34,7 @@ export interface IntelligenceAsset {
   is_active: boolean;
   created_at: bigint;
   version: number;
+  tags: string[];
 }
 
 export interface License {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
 interface Agent {
@@ -31,15 +31,12 @@ const TABS = [
 ];
 
 export default function LeaderboardPage() {
-  const [activeTab, setActiveTab] = useState<"reputation" | "activity" | "earnings">("reputation");
+  type TabType = "reputation" | "activity" | "earnings";
+  const [activeTab, setActiveTab] = useState<TabType>("reputation");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchLeaderboard();
-  }, [activeTab]);
-
-  async function fetchLeaderboard() {
+  const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(
@@ -54,7 +51,11 @@ export default function LeaderboardPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [activeTab]);
+
+  useEffect(() => {
+    fetchLeaderboard();
+  }, [fetchLeaderboard]);
 
   function getMetricValue(agent: Agent, tab: string) {
     if (tab === "reputation") return `${Math.round(agent.reputation / 100)}%`;
@@ -92,7 +93,7 @@ export default function LeaderboardPage() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id as TabType)}
               className={`px-6 py-4 font-semibold text-sm border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? "border-purple-500 text-white"
