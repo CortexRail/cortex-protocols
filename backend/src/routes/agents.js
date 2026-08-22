@@ -18,8 +18,35 @@ const { publicReadLimiter, writeLimiter } = require("../middleware/rateLimiter")
 const router = Router();
 
 /**
- * GET /api/v1/agents
- * Discover registered agents with optional filters.
+ * @swagger
+ * /api/v1/agents:
+ *   get:
+ *     summary: Discover registered agents with optional filters.
+ *     tags: [Agents]
+ *     parameters:
+ *       - in: query
+ *         name: capability
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: minReputation
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: A list of agents
  */
 router.get(
   "/",
@@ -47,15 +74,37 @@ router.get(
 );
 
 /**
- * GET /api/v1/agents/capabilities/list
+ * @swagger
+ * /api/v1/agents/capabilities/list:
+ *   get:
+ *     summary: List capabilities
+ *     tags: [Agents]
+ *     responses:
+ *       200:
+ *         description: list of capabilities
  */
 router.get("/capabilities/list", publicReadLimiter, (_req, res) => {
   res.json({ capabilities: CAPABILITIES });
 });
 
 /**
- * GET /api/v1/agents/leaderboard
- * Get top agents by reputation, activity, or earnings.
+ * @swagger
+ * /api/v1/agents/leaderboard:
+ *   get:
+ *     summary: Get top agents by reputation, activity, or earnings.
+ *     tags: [Agents]
+ *     parameters:
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Leaderboard data
  */
 router.get(
   "/leaderboard",
@@ -74,7 +123,20 @@ router.get(
 );
 
 /**
- * GET /api/v1/agents/:id
+ * @swagger
+ * /api/v1/agents/{id}:
+ *   get:
+ *     summary: Get agent by id
+ *     tags: [Agents]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Agent details
  */
 router.get(
   "/:id",
@@ -91,8 +153,33 @@ router.get(
 );
 
 /**
- * POST /api/v1/agents
- * Index an agent identity after on-chain registration.
+ * @swagger
+ * /api/v1/agents:
+ *   post:
+ *     summary: Index an agent identity after on-chain registration.
+ *     tags: [Agents]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: integer
+ *               owner:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               capabilities:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       201:
+ *         description: Agent created
  */
 router.post(
   "/",
@@ -117,8 +204,24 @@ router.post(
 );
 
 /**
- * GET /api/v1/agents/:id/reputation-history
- * Get time-series reputation votes for an agent.
+ * @swagger
+ * /api/v1/agents/{id}/reputation-history:
+ *   get:
+ *     summary: Get time-series reputation votes for an agent.
+ *     tags: [Agents]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: History data
  */
 router.get(
   "/:id/reputation-history",
@@ -140,8 +243,31 @@ router.get(
 );
 
 /**
- * POST /api/v1/agents/:id/reputation
- * Submit a reputation vote (0-100) for an agent.
+ * @swagger
+ * /api/v1/agents/{id}/reputation:
+ *   post:
+ *     summary: Submit a reputation vote (0-100) for an agent.
+ *     tags: [Agents]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               score:
+ *                 type: integer
+ *               voter:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Reputation submitted
  */
 router.post(
   "/:id/reputation",
@@ -163,8 +289,28 @@ router.post(
 );
 
 /**
- * GET /api/v1/agents/:id/activity
- * Get paginated on-chain event feed for an agent.
+ * @swagger
+ * /api/v1/agents/{id}/activity:
+ *   get:
+ *     summary: Get paginated on-chain event feed for an agent.
+ *     tags: [Agents]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Activity feed
  */
 router.get(
   "/:id/activity",

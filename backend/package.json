@@ -14,7 +14,8 @@
     "simulate:smoke": "node src/simulation/run-simulation.js --smoke --mock",
     "lint": "eslint src/",
     "test": "jest --forceExit",
-    "backtest:fraud": "jest src/__tests__/fraud --forceExit"
+    "backtest:fraud": "jest src/__tests__/fraud --forceExit",
+    "build": "node scripts/generate-openapi.js"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.1.0",
@@ -24,6 +25,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "express-rate-limit": "^8.6.2",
     "express-validator": "^7.1.0",
     "helmet": "^7.1.0",
