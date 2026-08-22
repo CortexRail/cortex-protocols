@@ -619,6 +619,7 @@ fn test_list_asset_rejects_zero_price() {
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &0i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::InvalidPrice);
@@ -656,6 +657,7 @@ fn test_list_asset_accepts_price_of_one_stroop() {
         &AssetType::Tool,
         &LicenseType::Perpetual,
         &1i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert!(result.is_ok());
@@ -794,6 +796,7 @@ fn test_list_asset_rejects_when_limit_reached() {
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &1i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert_eq!(

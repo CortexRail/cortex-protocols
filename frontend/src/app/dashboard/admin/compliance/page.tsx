@@ -135,83 +135,29 @@ export default function CompliancePage() {
   // ── Load requests ────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (activeTab !== "requests" || !adminKey) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await apiFetch<{ data: ComplianceRequest[]; meta: ListMeta }>(
-          `/api/v1/admin/compliance/requests?page=${requestsPage}&limit=20`
-        );
-        if (cancelled) return;
-        setRequests(data.data);
-        setRequestsMeta(data.meta);
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
+    const run = async () => {
+      if (activeTab === "requests") await loadRequests();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, adminKey, requestsPage, requestsReloadToken]);
+    run();
+  }, [activeTab, loadRequests]);
 
   // ── Load audit entries ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (activeTab !== "entries" || !adminKey) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await apiFetch<{ data: AuditEntry[]; meta: ListMeta }>(
-          `/api/v1/admin/audit/entries?page=${auditPage}&limit=50`
-        );
-        if (cancelled) return;
-        setAuditEntries(data.data);
-        setAuditMeta(data.meta);
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
+    const run = async () => {
+      if (activeTab === "entries") await loadAuditEntries();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, adminKey, auditPage]);
+    run();
+  }, [activeTab, loadAuditEntries]);
 
   // ── Load anchors ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (activeTab !== "anchors" || !adminKey) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await apiFetch<{ data: AnchorRecord[]; meta: ListMeta }>(
-          `/api/v1/admin/audit/anchors?page=${anchorPage}&limit=20`
-        );
-        if (cancelled) return;
-        setAnchors(data.data);
-        setAnchorMeta(data.meta);
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
+    const run = async () => {
+      if (activeTab === "anchors") await loadAnchors();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, adminKey, anchorPage, anchorsReloadToken]);
+    run();
+  }, [activeTab, loadAnchors]);
 
   // ── Submit export ─────────────────────────────────────────────────────────────
 

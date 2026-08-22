@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Asset, AssetFilters, AssetListResponse, fetchAssets } from "@/lib/api/assets";
 
 export interface UseAssetsResult {
@@ -16,36 +16,19 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<AssetListResponse["meta"] | null>(null);
-  // Bumped by `mutate()` to force a refetch without duplicating the fetch
-  // logic outside the effect (see useAsset below for why it stays inline).
-  const [reloadToken, setReloadToken] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const result = await fetchAssets(filters);
-        if (cancelled) return;
-        setData(result.data);
-        setMeta(result.meta);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to fetch assets");
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-    // Depends on individual filter fields (not the `filters` object) so a
-    // fresh object literal with unchanged values doesn't retrigger a fetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await fetchAssets(filters);
+      setData(result.data);
+      setMeta(result.meta);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch assets");
+    } finally {
+      setIsLoading(false);
+    }
   }, [
     filters.search,
     filters.assetType,
@@ -59,9 +42,11 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
     reloadToken,
   ]);
 
-  const mutate = useCallback(() => setReloadToken((token) => token + 1), []);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  return { data, isLoading, error, mutate, meta };
+  return { data, isLoading, error, mutate: load, meta };
 }
 
 export function useAsset(id: string) {

@@ -9,21 +9,14 @@ interface SearchBarProps {
 
 export function SearchBar({ onSearch, resultCount }: SearchBarProps) {
   const [query, setQuery] = useState("");
-  // A timer id doesn't need to trigger a re-render, so it lives in a ref
-  // rather than state (which also keeps this out of the effect's own
-  // reactive dependencies).
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
 
   useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-
-    debounceTimer.current = setTimeout(() => {
+    const timer = setTimeout(() => {
       onSearch(query);
     }, 300);
 
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    };
+    return () => clearTimeout(timer);
   }, [query, onSearch]);
 
   const handleClear = () => {

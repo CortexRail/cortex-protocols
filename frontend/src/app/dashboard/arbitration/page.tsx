@@ -234,9 +234,7 @@ export default function ArbitrationQueuePage() {
                         name="vote"
                         value={option.id}
                         checked={voteChoice === option.id}
-                        onChange={() =>
-                          setVoteChoice(option.id as "FullRefund" | "PartialRefund" | "ReleaseToSeller")
-                        }
+                        onChange={() => setVoteChoice(option.id as "FullRefund" | "PartialRefund" | "ReleaseToSeller")}
                         className="mt-1 text-amber-500 focus:ring-amber-500"
                       />
                       <div>
