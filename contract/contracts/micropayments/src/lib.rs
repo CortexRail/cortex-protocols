@@ -229,6 +229,7 @@ impl MicropaymentsContract {
         sender.require_auth();
         assert!(deposit > 0, "deposit must be positive");
         assert!(rate_per_second > 0, "rate must be positive");
+        assert!(duration_secs > 0, "duration must be positive");
 
         // Pull deposit from sender
         let token_client = soroban_sdk::token::Client::new(&env, &token);
