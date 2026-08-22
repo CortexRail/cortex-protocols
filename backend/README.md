@@ -19,6 +19,9 @@ npm install
 npm run dev
 ```
 
+## API Docs
+Swagger UI documentation is available at `GET /api/docs`.
+
 ## API Routes
 
 | Method | Path | Description |
