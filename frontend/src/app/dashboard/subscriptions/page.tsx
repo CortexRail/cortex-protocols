@@ -18,7 +18,11 @@ export default function SubscriptionsDashboard() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={\pb-2 \\}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === tab
+                ? "border-purple-500 text-white"
+                : "border-transparent text-zinc-400 hover:text-white"
+            }`}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>

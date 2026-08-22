@@ -36,25 +36,27 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchLeaderboard();
-  }, [activeTab]);
-
-  async function fetchLeaderboard() {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `http://localhost:4000/api/v1/agents/leaderboard?sortBy=${activeTab}&limit=20`
-      );
-      if (res.ok) {
-        const data: LeaderboardResponse = await res.json();
-        setAgents(data.data || []);
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `http://localhost:4000/api/v1/agents/leaderboard?sortBy=${activeTab}&limit=20`
+        );
+        if (res.ok && !cancelled) {
+          const data: LeaderboardResponse = await res.json();
+          setAgents(data.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch leaderboard:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (err) {
-      console.error("Failed to fetch leaderboard:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
 
   function getMetricValue(agent: Agent, tab: string) {
     if (tab === "reputation") return `${Math.round(agent.reputation / 100)}%`;
@@ -92,7 +94,7 @@ export default function LeaderboardPage() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id as "reputation" | "activity" | "earnings")}
               className={`px-6 py-4 font-semibold text-sm border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? "border-purple-500 text-white"

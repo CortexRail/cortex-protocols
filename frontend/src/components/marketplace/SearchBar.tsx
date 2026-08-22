@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
@@ -9,17 +9,21 @@ interface SearchBarProps {
 
 export function SearchBar({ onSearch, resultCount }: SearchBarProps) {
   const [query, setQuery] = useState("");
-  const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+  // A timer id doesn't need to trigger a re-render, so it lives in a ref
+  // rather than state (which also keeps this out of the effect's own
+  // reactive dependencies).
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (debounceTimer) clearTimeout(debounceTimer);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
-    const timer = setTimeout(() => {
+    debounceTimer.current = setTimeout(() => {
       onSearch(query);
     }, 300);
 
-    setDebounceTimer(timer);
-    return () => clearTimeout(timer);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
   }, [query, onSearch]);
 
   const handleClear = () => {

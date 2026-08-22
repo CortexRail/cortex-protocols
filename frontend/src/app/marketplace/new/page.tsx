@@ -29,7 +29,7 @@ export default function CreateAssetPage() {
   });
   const [tagInput, setTagInput] = useState("");
 
-  const updateForm = (field: keyof AssetForm, value: any) => {
+  const updateForm = <K extends keyof AssetForm>(field: K, value: AssetForm[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -75,7 +75,7 @@ export default function CreateAssetPage() {
       if (!response.ok) throw new Error("Failed to create asset");
       const data = await response.json();
       window.location.href = `/marketplace/${data.id}`;
-    } catch (err) {
+    } catch {
       alert("Failed to publish asset. Please try again.");
     }
   };

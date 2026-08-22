@@ -122,7 +122,7 @@ export default function PolicyPage() {
 
       {!publicKey ? (
         <div className="text-center py-12 bg-white rounded-lg shadow-sm border border-gray-200">
-          <p className="text-gray-500">Connect your wallet to manage your organization's policy.</p>
+          <p className="text-gray-500">Connect your wallet to manage your organization&apos;s policy.</p>
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 max-w-2xl">

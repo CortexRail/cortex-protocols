@@ -51,29 +51,31 @@ export default function AgentsPage() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    fetchAgents();
-  }, [search, selectedCapabilities, sortBy, page]);
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (search) params.append("search", search);
+        if (selectedCapabilities.length === 1) {
+          params.append("capability", selectedCapabilities[0]);
+        }
+        params.append("page", String(page));
+        params.append("limit", "12");
 
-  async function fetchAgents() {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (search) params.append("search", search);
-      if (selectedCapabilities.length === 1) {
-        params.append("capability", selectedCapabilities[0]);
+        const res = await fetch(`http://localhost:4000/api/v1/agents?${params}`);
+        const data: ListResponse = await res.json();
+        if (!cancelled) setAgents(data.data || []);
+      } catch (err) {
+        console.error("Failed to fetch agents:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      params.append("page", String(page));
-      params.append("limit", "12");
-
-      const res = await fetch(`http://localhost:4000/api/v1/agents?${params}`);
-      const data: ListResponse = await res.json();
-      setAgents(data.data || []);
-    } catch (err) {
-      console.error("Failed to fetch agents:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [search, selectedCapabilities, sortBy, page]);
 
   function getReputationColor(rep: number) {
     const pct = rep / 100;
