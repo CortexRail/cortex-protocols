@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Asset, AssetFilters, AssetListResponse, fetchAssets } from "@/lib/api/assets";
 
 export interface UseAssetsResult {
@@ -17,7 +17,7 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<AssetListResponse["meta"] | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -29,10 +29,6 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    load();
   }, [
     filters.search,
     filters.assetType,
@@ -44,6 +40,10 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
     filters.page,
     filters.limit,
   ]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return { data, isLoading, error, mutate: load, meta };
 }

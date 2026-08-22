@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
@@ -70,11 +70,7 @@ function AgentsContent() {
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [search, selectedCapabilities, sortBy, page, pathname, router]);
 
-  useEffect(() => {
-    fetchAgents();
-  }, [search, selectedCapabilities, sortBy, page]);
-
-  async function fetchAgents() {
+  const fetchAgents = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -95,7 +91,11 @@ function AgentsContent() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [search, selectedCapabilities, page]);
+
+  useEffect(() => {
+    fetchAgents();
+  }, [fetchAgents]);
 
   function getReputationColor(rep: number) {
     const pct = rep / 100;

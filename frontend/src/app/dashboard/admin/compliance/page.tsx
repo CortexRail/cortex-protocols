@@ -148,7 +148,10 @@ export default function CompliancePage() {
   }, [adminKey, requestsPage]);
 
   useEffect(() => {
-    if (activeTab === "requests") loadRequests();
+    const run = async () => {
+      if (activeTab === "requests") await loadRequests();
+    };
+    run();
   }, [activeTab, loadRequests]);
 
   // ── Load audit entries ────────────────────────────────────────────────────────
@@ -171,7 +174,10 @@ export default function CompliancePage() {
   }, [adminKey, auditPage]);
 
   useEffect(() => {
-    if (activeTab === "entries") loadAuditEntries();
+    const run = async () => {
+      if (activeTab === "entries") await loadAuditEntries();
+    };
+    run();
   }, [activeTab, loadAuditEntries]);
 
   // ── Load anchors ──────────────────────────────────────────────────────────────
@@ -194,7 +200,10 @@ export default function CompliancePage() {
   }, [adminKey, anchorPage]);
 
   useEffect(() => {
-    if (activeTab === "anchors") loadAnchors();
+    const run = async () => {
+      if (activeTab === "anchors") await loadAnchors();
+    };
+    run();
   }, [activeTab, loadAnchors]);
 
   // ── Submit export ─────────────────────────────────────────────────────────────
@@ -748,7 +757,7 @@ export default function CompliancePage() {
             {loading ? (
               <p className="text-zinc-500 text-sm">Loading…</p>
             ) : anchors.length === 0 ? (
-              <p className="text-zinc-500 text-sm">No anchors yet. Click "Anchor Now" to create one.</p>
+              <p className="text-zinc-500 text-sm">No anchors yet. Click &quot;Anchor Now&quot; to create one.</p>
             ) : (
               <div className="space-y-3">
                 {anchors.map((a) => (

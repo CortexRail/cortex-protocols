@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -17,13 +17,25 @@ interface Agent {
   isActive: boolean;
 }
 
+interface ReputationHistoryEntry {
+  score: number;
+  voter: string;
+  timestamp: number;
+}
+
+interface ActivityFeedEntry {
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
 interface ReputationHistoryResponse {
-  data: Array<{ score: number; voter: string; timestamp: number }>;
+  data: ReputationHistoryEntry[];
   meta: { agentId: string; count: number };
 }
 
 interface ActivityFeedResponse {
-  data: Array<{ type: string; data: any; timestamp: number }>;
+  data: ActivityFeedEntry[];
   meta: { total: number; page: number; limit: number; pages: number };
 }
 
@@ -32,19 +44,13 @@ export default function AgentProfilePage() {
   const agentId = params.id as string;
 
   const [agent, setAgent] = useState<Agent | null>(null);
-  const [reputationHistory, setReputationHistory] = useState<any[]>([]);
-  const [activity, setActivity] = useState<any[]>([]);
+  const [reputationHistory, setReputationHistory] = useState<ReputationHistoryEntry[]>([]);
+  const [activity, setActivity] = useState<ActivityFeedEntry[]>([]);
   const [activeTab, setActiveTab] = useState<"overview" | "reputation" | "activity">("overview");
   const [voteScore, setVoteScore] = useState(50);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAgent();
-    fetchReputationHistory();
-    fetchActivity();
-  }, [agentId]);
-
-  async function fetchAgent() {
+  const fetchAgent = useCallback(async () => {
     try {
       const res = await fetch(`http://localhost:4000/api/v1/agents/${agentId}`);
       if (res.ok) {
@@ -55,9 +61,9 @@ export default function AgentProfilePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [agentId]);
 
-  async function fetchReputationHistory() {
+  const fetchReputationHistory = useCallback(async () => {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/${agentId}/reputation-history?limit=30`
@@ -69,9 +75,9 @@ export default function AgentProfilePage() {
     } catch (err) {
       console.error("Failed to fetch reputation history:", err);
     }
-  }
+  }, [agentId]);
 
-  async function fetchActivity() {
+  const fetchActivity = useCallback(async () => {
     try {
       const res = await fetch(
         `http://localhost:4000/api/v1/agents/${agentId}/activity?limit=20`
@@ -83,7 +89,13 @@ export default function AgentProfilePage() {
     } catch (err) {
       console.error("Failed to fetch activity:", err);
     }
-  }
+  }, [agentId]);
+
+  useEffect(() => {
+    fetchAgent();
+    fetchReputationHistory();
+    fetchActivity();
+  }, [fetchAgent, fetchReputationHistory, fetchActivity]);
 
   async function submitVote() {
     try {
