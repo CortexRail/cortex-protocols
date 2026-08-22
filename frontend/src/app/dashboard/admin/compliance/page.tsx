@@ -17,7 +17,7 @@
  * admin enters it in the UI (suitable for an internal operator tool).
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -98,6 +98,8 @@ export default function CompliancePage() {
   const [requests, setRequests] = useState<ComplianceRequest[]>([]);
   const [requestsMeta, setRequestsMeta] = useState<ListMeta | null>(null);
   const [requestsPage, setRequestsPage] = useState(1);
+  // Bumped after a submission to force the requests effect to refetch.
+  const [requestsReloadToken, setRequestsReloadToken] = useState(0);
 
   // Verify
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
@@ -113,6 +115,8 @@ export default function CompliancePage() {
   const [anchorMeta, setAnchorMeta] = useState<ListMeta | null>(null);
   const [anchorPage, setAnchorPage] = useState(1);
   const [anchoring, setAnchoring] = useState(false);
+  // Bumped after an on-demand anchor to force the anchors effect to refetch.
+  const [anchorsReloadToken, setAnchorsReloadToken] = useState(0);
 
   function adminHeaders(): HeadersInit {
     return { "Content-Type": "application/json", "x-admin-key": adminKey };
@@ -130,23 +134,6 @@ export default function CompliancePage() {
 
   // ── Load requests ────────────────────────────────────────────────────────────
 
-  const loadRequests = useCallback(async () => {
-    if (!adminKey) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch<{ data: ComplianceRequest[]; meta: ListMeta }>(
-        `/api/v1/admin/compliance/requests?page=${requestsPage}&limit=20`
-      );
-      setRequests(data.data);
-      setRequestsMeta(data.meta);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [adminKey, requestsPage]);
-
   useEffect(() => {
     const run = async () => {
       if (activeTab === "requests") await loadRequests();
@@ -156,23 +143,6 @@ export default function CompliancePage() {
 
   // ── Load audit entries ────────────────────────────────────────────────────────
 
-  const loadAuditEntries = useCallback(async () => {
-    if (!adminKey) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch<{ data: AuditEntry[]; meta: ListMeta }>(
-        `/api/v1/admin/audit/entries?page=${auditPage}&limit=50`
-      );
-      setAuditEntries(data.data);
-      setAuditMeta(data.meta);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [adminKey, auditPage]);
-
   useEffect(() => {
     const run = async () => {
       if (activeTab === "entries") await loadAuditEntries();
@@ -181,23 +151,6 @@ export default function CompliancePage() {
   }, [activeTab, loadAuditEntries]);
 
   // ── Load anchors ──────────────────────────────────────────────────────────────
-
-  const loadAnchors = useCallback(async () => {
-    if (!adminKey) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch<{ data: AnchorRecord[]; meta: ListMeta }>(
-        `/api/v1/admin/audit/anchors?page=${anchorPage}&limit=20`
-      );
-      setAnchors(data.data);
-      setAnchorMeta(data.meta);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [adminKey, anchorPage]);
 
   useEffect(() => {
     const run = async () => {
@@ -223,7 +176,7 @@ export default function CompliancePage() {
       );
       setSubmitMessage(data.message);
       setExportSubject("");
-      loadRequests();
+      setRequestsReloadToken((token) => token + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -253,7 +206,7 @@ export default function CompliancePage() {
       setSubmitMessage(data.message);
       setEraseSubject("");
       setEraseConfirmed(false);
-      loadRequests();
+      setRequestsReloadToken((token) => token + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -286,7 +239,7 @@ export default function CompliancePage() {
     setError(null);
     try {
       await apiFetch("/api/v1/admin/audit/anchor", { method: "POST" });
-      await loadAnchors();
+      setAnchorsReloadToken((token) => token + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {

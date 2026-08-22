@@ -39,6 +39,7 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
     filters.sortBy,
     filters.page,
     filters.limit,
+    reloadToken,
   ]);
 
   useEffect(() => {

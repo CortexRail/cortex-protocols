@@ -1,6 +1,7 @@
 import type {
   Asset,
   AssetListResponse,
+  LicenseListResponse,
   PurchaseResponse,
 } from "@/types/marketplace";
 
@@ -55,6 +56,18 @@ export function getAssets(
 
 export function getAsset(id: string, signal?: AbortSignal): Promise<Asset> {
   return request<Asset>(`/api/v1/assets/${encodeURIComponent(id)}`, { signal });
+}
+
+/**
+ * Every license a buyer holds, most recent first — used to check whether
+ * the connected wallet already owns a license for the asset being viewed.
+ */
+export function getLicensesForBuyer(
+  buyer: string,
+  signal?: AbortSignal
+): Promise<LicenseListResponse> {
+  const params = new URLSearchParams({ buyer, limit: "100" });
+  return request<LicenseListResponse>(`/api/v1/licenses?${params}`, { signal });
 }
 
 export function purchaseAssetVersion(

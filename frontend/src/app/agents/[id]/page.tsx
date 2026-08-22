@@ -49,6 +49,10 @@ export default function AgentProfilePage() {
   const [activeTab, setActiveTab] = useState<"overview" | "reputation" | "activity">("overview");
   const [voteScore, setVoteScore] = useState(50);
   const [loading, setLoading] = useState(true);
+  // Bumped after a vote submits so the reputation-history effect refetches
+  // without needing an externally-callable fetch function reachable from
+  // inside an effect (see useAssets' `mutate` for the same pattern).
+  const [reputationReloadToken, setReputationReloadToken] = useState(0);
 
   const fetchAgent = useCallback(async () => {
     try {
@@ -109,7 +113,7 @@ export default function AgentProfilePage() {
       });
       if (res.ok) {
         alert("Vote submitted!");
-        fetchReputationHistory();
+        setReputationReloadToken((token) => token + 1);
       }
     } catch (err) {
       console.error("Failed to submit vote:", err);
