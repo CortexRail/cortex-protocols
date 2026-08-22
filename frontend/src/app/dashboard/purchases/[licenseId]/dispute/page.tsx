@@ -36,24 +36,25 @@ export default function DisputeFilingPage({ params }: PageProps) {
 
   // Real-time SHA-256 evidence hashing in browser
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
 
-    async function hash() {
+    (async () => {
       if (!evidenceText.trim()) {
-        if (active) setComputedHash("");
+        if (!cancelled) setComputedHash("");
         return;
       }
+
       const encoder = new TextEncoder();
       const data = encoder.encode(evidenceText);
       const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-      if (!active) return;
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
       if (!cancelled) setComputedHash(hashHex);
     })();
 
-    hash();
-    return () => { active = false; };
+    return () => {
+      cancelled = true;
+    };
   }, [evidenceText]);
 
   async function handleSubmit(e: React.FormEvent) {

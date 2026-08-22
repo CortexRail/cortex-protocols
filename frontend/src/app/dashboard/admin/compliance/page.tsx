@@ -109,6 +109,8 @@ export default function CompliancePage() {
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [auditMeta, setAuditMeta] = useState<ListMeta | null>(null);
   const [auditPage, setAuditPage] = useState(1);
+  // Bumped by the "Refresh" button to force the audit entries effect to refetch.
+  const [auditReloadToken, setAuditReloadToken] = useState(0);
 
   // Anchors
   const [anchors, setAnchors] = useState<AnchorRecord[]>([]);
@@ -135,29 +137,83 @@ export default function CompliancePage() {
   // ── Load requests ────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const run = async () => {
-      if (activeTab === "requests") await loadRequests();
+    if (activeTab !== "requests" || !adminKey) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<{ data: ComplianceRequest[]; meta: ListMeta }>(
+          `/api/v1/admin/compliance/requests?page=${requestsPage}&limit=20`
+        );
+        if (cancelled) return;
+        setRequests(data.data);
+        setRequestsMeta(data.meta);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    run();
-  }, [activeTab, loadRequests]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, adminKey, requestsPage, requestsReloadToken]);
 
   // ── Load audit entries ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const run = async () => {
-      if (activeTab === "entries") await loadAuditEntries();
+    if (activeTab !== "entries" || !adminKey) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<{ data: AuditEntry[]; meta: ListMeta }>(
+          `/api/v1/admin/audit/entries?page=${auditPage}&limit=50`
+        );
+        if (cancelled) return;
+        setAuditEntries(data.data);
+        setAuditMeta(data.meta);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    run();
-  }, [activeTab, loadAuditEntries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, adminKey, auditPage, auditReloadToken]);
 
   // ── Load anchors ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const run = async () => {
-      if (activeTab === "anchors") await loadAnchors();
+    if (activeTab !== "anchors" || !adminKey) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<{ data: AnchorRecord[]; meta: ListMeta }>(
+          `/api/v1/admin/audit/anchors?page=${anchorPage}&limit=20`
+        );
+        if (cancelled) return;
+        setAnchors(data.data);
+        setAnchorMeta(data.meta);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    run();
-  }, [activeTab, loadAnchors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, adminKey, anchorPage, anchorsReloadToken]);
 
   // ── Submit export ─────────────────────────────────────────────────────────────
 
@@ -491,7 +547,10 @@ export default function CompliancePage() {
                   Request Queue
                   {requestsMeta && <span className="text-zinc-500 font-normal text-sm ml-2">({requestsMeta.total} total)</span>}
                 </h2>
-                <button onClick={loadRequests} className="text-xs text-purple-400 hover:text-purple-300">
+                <button
+                  onClick={() => setRequestsReloadToken((token) => token + 1)}
+                  className="text-xs text-purple-400 hover:text-purple-300"
+                >
                   Refresh
                 </button>
               </div>
@@ -630,7 +689,10 @@ export default function CompliancePage() {
                 Audit Log Entries
                 {auditMeta && <span className="text-zinc-500 font-normal text-sm ml-2">({auditMeta.total} total)</span>}
               </h2>
-              <button onClick={loadAuditEntries} className="text-xs text-purple-400 hover:text-purple-300">
+              <button
+                onClick={() => setAuditReloadToken((token) => token + 1)}
+                className="text-xs text-purple-400 hover:text-purple-300"
+              >
                 Refresh
               </button>
             </div>
@@ -693,7 +755,10 @@ export default function CompliancePage() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <button onClick={loadAnchors} className="text-xs text-purple-400 hover:text-purple-300">
+                <button
+                  onClick={() => setAnchorsReloadToken((token) => token + 1)}
+                  className="text-xs text-purple-400 hover:text-purple-300"
+                >
                   Refresh
                 </button>
                 <button
