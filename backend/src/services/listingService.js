@@ -78,7 +78,7 @@ function enumScVal(variant) {
  * @param {string|number|bigint} params.price - Price in stroops.
  * @returns {Promise<{xdr:string, networkPassphrase:string, network:string}>}
  */
-async function buildListAssetTx({ owner, name, description, assetType, licenseType, price }) {
+async function buildListAssetTx({ owner, name, description, assetType, licenseType, price, tags = [] }) {
   const contractId = CONTRACT_IDS.marketplace;
   if (!contractId) {
     const err = new Error(
@@ -92,6 +92,8 @@ async function buildListAssetTx({ owner, name, description, assetType, licenseTy
   const account = await rpcServer.getAccount(owner);
   const contract = new Contract(contractId);
 
+  const tagsArray = tags.map(t => nativeToScVal(t, { type: "string" }));
+
   const args = [
     Address.fromString(owner).toScVal(),
     nativeToScVal(name, { type: "string" }),
@@ -99,6 +101,7 @@ async function buildListAssetTx({ owner, name, description, assetType, licenseTy
     enumScVal(assetType),
     enumScVal(licenseType),
     nativeToScVal(BigInt(price), { type: "i128" }),
+    xdr.ScVal.scvVec(tagsArray),
   ];
 
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })

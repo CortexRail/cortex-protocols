@@ -169,6 +169,8 @@ const listingBodyRules = [
   body("assetType").isIn(ASSET_TYPES),
   body("licenseType").isIn(LICENSE_TYPES),
   body("price").isInt({ min: 1 }), // stroops; must be > 0 (InvalidPrice)
+  body("tags").isArray({ max: 10 }).optional(),
+  body("tags.*").isString().trim().isLength({ min: 1, max: 30 }),
 ];
 
 /**
@@ -178,7 +180,7 @@ const listingBodyRules = [
  */
 router.post("/list-asset/build", listingBodyRules, validate, async (req, res, next) => {
   try {
-    const { owner, name, description, assetType, licenseType, price } = req.body;
+    const { owner, name, description, assetType, licenseType, price, tags = [] } = req.body;
     const result = await buildListAssetTx({
       owner,
       name: name.trim(),
@@ -186,6 +188,7 @@ router.post("/list-asset/build", listingBodyRules, validate, async (req, res, ne
       assetType,
       licenseType,
       price: String(price),
+      tags,
     });
     res.json(result);
   } catch (err) {
@@ -211,7 +214,7 @@ router.post(
   validate,
   async (req, res, next) => {
     try {
-      const { signedXdr, owner, name, description, assetType, licenseType, price } = req.body;
+      const { signedXdr, owner, name, description, assetType, licenseType, price, tags = [] } = req.body;
       const { hash, assetId } = await submitSignedTx(signedXdr);
 
       let asset = null;
@@ -224,6 +227,7 @@ router.post(
           assetType,
           licenseType,
           price: Number(price),
+          tags,
         });
       }
 
