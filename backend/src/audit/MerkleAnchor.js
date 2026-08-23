@@ -406,12 +406,16 @@ class MerkleAnchor {
    *   null if no anchor covers the given seq.
    */
   async proveInclusion(seq) {
-    // Find the anchor that covers this seq.
+    // Find the anchor that covers this seq. A proof only needs the root this
+    // module already computed and stored — verifying it is a pure offline
+    // hash computation — so 'submitted' (recorded locally, no on-chain
+    // contract configured) counts as much as 'confirmed', matching the same
+    // status set _getLastAnchor() treats as valid.
     const { rows } = await query(
       `SELECT id, from_seq, to_seq, merkle_root
        FROM merkle_anchors
        WHERE from_seq <= $1 AND to_seq >= $1
-         AND status = 'confirmed'
+         AND status IN ('submitted', 'confirmed')
        ORDER BY to_seq ASC
        LIMIT 1`,
       [seq]

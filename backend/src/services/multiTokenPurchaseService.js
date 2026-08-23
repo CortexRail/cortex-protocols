@@ -13,6 +13,7 @@ const contractStateRepository = require("../repositories/contractStateRepository
 const priceOracleAggregator = require("../pricing/PriceOracleAggregator");
 const priceCommitmentBuilder = require("../pricing/PriceCommitmentBuilder");
 const stalenessGuard = require("../pricing/StalenessGuard");
+const { resolveTokenSymbol } = require("../config/knownTokens");
 const { logger } = require("../utils/logger");
 
 // License terms defaults
@@ -79,8 +80,13 @@ async function getPriceCommitment({
   }
 
   try {
-    // Get aggregated price from oracle
-    const oracleData = await priceOracleAggregator.aggregatePrices(token, "USD");
+    // The aggregator's sources key prices by symbol (e.g. "USDC-USD"), not by
+    // the raw Stellar contract address a buyer pays with, so resolve one
+    // before asking for a price. An address with no known symbol falls back
+    // to itself, matching prior behavior for tokens the registry doesn't
+    // cover yet.
+    const symbol = resolveTokenSymbol(token) || token;
+    const oracleData = await priceOracleAggregator.aggregatePrices(symbol, "USD");
 
     // Validate freshness
     const freshness = stalenessGuard.validatePrice(oracleData, {
@@ -94,13 +100,28 @@ async function getPriceCommitment({
       );
     }
 
-    // Build commitment with slippage tolerance
-    const commitment = priceCommitmentBuilder.buildPriceCommitment({
+    // Build commitment with slippage tolerance. buildPriceCommitment uses
+    // BigInt internally for its signed fields (asset id, prices, ledger
+    // sequence) — appropriate for the on-chain contract call these values
+    // ultimately feed, but BigInt has no JSON representation, so res.json()
+    // on this route throws. Convert to Number for this HTTP-facing result;
+    // it doesn't change the wire value (these fit safely below
+    // Number.MAX_SAFE_INTEGER) or the signature (signCommitment interpolates
+    // via string conversion, which is identical for a Number and the BigInt
+    // it came from).
+    const builtCommitment = priceCommitmentBuilder.buildPriceCommitment({
       assetId,
       token,
       usdPriceCents: asset.usdPriceCents,
       slippageTolerance,
     });
+    const commitment = {
+      ...builtCommitment,
+      assetId: Number(builtCommitment.assetId),
+      usdPriceCents: Number(builtCommitment.usdPriceCents),
+      maxPrice: Number(builtCommitment.maxPrice),
+      validUntilLedger: Number(builtCommitment.validUntilLedger),
+    };
 
     return {
       commitment,
