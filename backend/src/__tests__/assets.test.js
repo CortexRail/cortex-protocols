@@ -10,6 +10,7 @@ const {
   OWNER_A,
   OWNER_B,
 } = require("./helpers/testDb");
+const { writeLimiter } = require("../middleware/rateLimiter");
 
 // Right length (56 chars), right "G" prefix, but an invalid checksum.
 const BAD_CHECKSUM_KEY =
@@ -37,6 +38,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await closePool();
+});
+
+// This file reuses OWNER_A/OWNER_B as owner/buyer/reporter across many write
+// endpoints, so writeLimiter's per-address bucket (10/min, shared for the
+// whole in-memory store's lifetime) accumulates hits across unrelated tests
+// and can 429 later ones. Reset both fixture addresses' buckets before each
+// test rather than loosening the limiter itself, which has its own dedicated
+// coverage in rateLimiter.test.js.
+beforeEach(async () => {
+  await writeLimiter.resetKey(OWNER_A);
+  await writeLimiter.resetKey(OWNER_B);
 });
 
 describe("GET /api/v1/assets", () => {

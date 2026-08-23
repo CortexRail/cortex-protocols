@@ -31,6 +31,7 @@ const crypto = require("crypto");
 const { query } = require("../db/connection");
 // const { withTransaction } = require("../db/connection");
 const { AuditLogWriter, EVENT_TYPES } = require("./AuditLogWriter");
+const { logger } = require("../utils/logger");
 
 // Anchor triggers: whichever threshold is crossed first triggers an anchoring.
 const ANCHOR_INTERVAL_ENTRIES = Number(process.env.AUDIT_ANCHOR_INTERVAL_ENTRIES) || 1000;
