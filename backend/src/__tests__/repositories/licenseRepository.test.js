@@ -207,3 +207,70 @@ describe("licenseRepository.expire", () => {
     expect(await licenseRepository.expire(444_444)).toBeNull();
   });
 });
+
+describe("licenseRepository.addCallsAndPrice", () => {
+  it("increments both calls_remaining and price_paid", async () => {
+    const created = await licenseRepository.create(
+      buildLicense({ callsRemaining: 10, pricePaid: 500_000 })
+    );
+    const updated = await licenseRepository.addCallsAndPrice(created.id, {
+      addCalls: 50,
+      addPricePaid: 250_000,
+    });
+    expect(updated.callsRemaining).toBe(60);
+    expect(updated.pricePaid).toBe(750_000);
+  });
+
+  it("returns null for a non-usage-based license", async () => {
+    const created = await licenseRepository.create(
+      buildLicense({ licenseType: "Perpetual", callsRemaining: null })
+    );
+    expect(
+      await licenseRepository.addCallsAndPrice(created.id, { addCalls: 10, addPricePaid: 1000 })
+    ).toBeNull();
+  });
+
+  it("returns null for an inactive license", async () => {
+    const created = await licenseRepository.create(buildLicense());
+    await licenseRepository.expire(created.id);
+    expect(
+      await licenseRepository.addCallsAndPrice(created.id, { addCalls: 10, addPricePaid: 1000 })
+    ).toBeNull();
+  });
+
+  it("returns null for an unknown license", async () => {
+    expect(
+      await licenseRepository.addCallsAndPrice(999_999, { addCalls: 10, addPricePaid: 1000 })
+    ).toBeNull();
+  });
+});
+
+describe("licenseRepository.sumRemainingCallsForAsset", () => {
+  it("sums calls_remaining across active usage-based licenses only", async () => {
+    const asset2 = await assetRepository.create(buildAsset());
+    await licenseRepository.create(buildLicense({ callsRemaining: 30 }));
+    await licenseRepository.create(
+      buildLicense({ assetId: asset2.id, buyer: OWNER_A, callsRemaining: 20 })
+    );
+
+    const result = await licenseRepository.sumRemainingCallsForAsset(asset.id);
+    expect(result).toEqual({ activeLicenseCount: 1, totalRemaining: 30 });
+  });
+
+  it("excludes non-usage-based and inactive licenses", async () => {
+    const perpetualBuyer = OWNER_A;
+    await licenseRepository.create(
+      buildLicense({ licenseType: "Perpetual", callsRemaining: null, buyer: perpetualBuyer })
+    );
+    const expired = await licenseRepository.create(buildLicense({ callsRemaining: 15 }));
+    await licenseRepository.expire(expired.id);
+
+    const result = await licenseRepository.sumRemainingCallsForAsset(asset.id);
+    expect(result).toEqual({ activeLicenseCount: 0, totalRemaining: 0 });
+  });
+
+  it("returns zeroes for an asset with no licenses", async () => {
+    const result = await licenseRepository.sumRemainingCallsForAsset(asset.id);
+    expect(result).toEqual({ activeLicenseCount: 0, totalRemaining: 0 });
+  });
+});

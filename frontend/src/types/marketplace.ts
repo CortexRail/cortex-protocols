@@ -55,3 +55,52 @@ export interface LicenseListResponse {
     pages: number;
   };
 }
+
+export interface UsageBucket {
+  bucketStart: number;
+  calls: number;
+  revenue: number;
+}
+
+export interface UsageSeriesResponse {
+  data: UsageBucket[];
+  from: number;
+  to: number;
+  bucketSeconds: number;
+}
+
+export interface TopCaller {
+  caller: string;
+  calls: number;
+  revenue: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export interface TopCallersResponse {
+  data: TopCaller[];
+  from: number;
+  to: number;
+}
+
+export interface RevenueByLicenseType {
+  licenseType: string;
+  licenseCount: number;
+  revenue: number;
+}
+
+export interface RevenueBreakdownResponse {
+  data: RevenueByLicenseType[];
+  totalRevenue: number;
+}
+
+export interface RemainingCallsResponse {
+  activeLicenseCount: number;
+  totalRemaining: number;
+}
+
+export interface TopUpResponse {
+  license: License;
+  amountCharged: number;
+  callsAdded: number;
+}

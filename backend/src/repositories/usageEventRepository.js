@@ -156,10 +156,11 @@ async function findAll(filters = {}, pagination = {}, client) {
  * @param {number} options.from - window start, epoch ms
  * @param {number} options.to - window end, epoch ms
  * @param {number} [options.bucketSeconds] - bucket width (default 1h)
+ * @param {number} [options.assetId] - scope to a single asset (subject: "asset" only)
  * @returns {Promise<Array<{subject: string|number, bucketStart: number, calls: number, revenue: number}>>}
  */
 async function callCountsByBucket(
-  { subject = "asset", from, to, bucketSeconds = 3600 } = {},
+  { subject = "asset", from, to, bucketSeconds = 3600, assetId = null } = {},
   client
 ) {
   const column = SUBJECT_COLUMNS[subject];
@@ -167,6 +168,13 @@ async function callCountsByBucket(
     throw new Error(`unsupported velocity subject: ${subject}`);
   }
   const width = Math.max(1, Math.trunc(Number(bucketSeconds) || 3600));
+
+  const params = [msParam(from), msParam(to), width];
+  let assetFilter = "";
+  if (assetId !== null && assetId !== undefined) {
+    params.push(assetId);
+    assetFilter = `AND asset_id = $${params.length}`;
+  }
 
   const { rows } = await run(
     `SELECT ${column} AS subject,
@@ -180,9 +188,10 @@ async function callCountsByBucket(
      WHERE occurred_at >= to_timestamp($1::double precision / 1000.0)
        AND occurred_at <  to_timestamp($2::double precision / 1000.0)
        AND ${column} IS NOT NULL
+       ${assetFilter}
      GROUP BY subject, bucket_start
      ORDER BY subject, bucket_start`,
-    [msParam(from), msParam(to), width],
+    params,
     client,
     "read"
   );
@@ -202,10 +211,18 @@ async function callCountsByBucket(
  *
  * `ownerAddress` rides along so the detector doesn't need a second lookup.
  *
+ * @param {number} [options.assetId] - scope to a single asset
  * @returns {Promise<Array<{assetId: number, ownerAddress: string, caller: string,
  *   calls: number, revenue: number, firstSeen: number, lastSeen: number}>>}
  */
-async function assetUsageByCaller({ from, to, minAssetCalls = 1 } = {}, client) {
+async function assetUsageByCaller({ from, to, minAssetCalls = 1, assetId = null } = {}, client) {
+  const params = [msParam(from), msParam(to), Math.max(1, Math.trunc(Number(minAssetCalls) || 1))];
+  let assetFilter = "";
+  if (assetId !== null && assetId !== undefined) {
+    params.push(assetId);
+    assetFilter = `AND u.asset_id = $${params.length}`;
+  }
+
   const { rows } = await run(
     `WITH windowed AS (
        SELECT u.asset_id, u.caller, u.price_paid, u.occurred_at
@@ -213,6 +230,7 @@ async function assetUsageByCaller({ from, to, minAssetCalls = 1 } = {}, client) 
        WHERE u.occurred_at >= to_timestamp($1::double precision / 1000.0)
          AND u.occurred_at <  to_timestamp($2::double precision / 1000.0)
          AND u.asset_id IS NOT NULL
+         ${assetFilter}
      ),
      busy AS (
        SELECT asset_id FROM windowed
@@ -231,7 +249,7 @@ async function assetUsageByCaller({ from, to, minAssetCalls = 1 } = {}, client) 
      LEFT JOIN assets a ON a.id = w.asset_id
      GROUP BY w.asset_id, a.owner, w.caller
      ORDER BY w.asset_id, calls DESC`,
-    [msParam(from), msParam(to), Math.max(1, Math.trunc(Number(minAssetCalls) || 1))],
+    params,
     client,
     "read"
   );

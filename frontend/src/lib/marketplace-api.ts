@@ -3,6 +3,11 @@ import type {
   AssetListResponse,
   LicenseListResponse,
   PurchaseResponse,
+  RemainingCallsResponse,
+  RevenueBreakdownResponse,
+  TopCallersResponse,
+  TopUpResponse,
+  UsageSeriesResponse,
 } from "@/types/marketplace";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(
@@ -87,4 +92,75 @@ export function purchaseAssetVersion(
 
 export function isBuyerAddress(value: string): boolean {
   return /^G[A-Z2-7]{55}$/.test(value);
+}
+
+// ── Owner-facing asset analytics ────────────────────────────────────────────
+// Every call below requires `owner` and is only readable by that asset's
+// owner — the backend checks asset.owner === owner and 403s otherwise.
+
+export function getAssetUsage(
+  assetId: string,
+  owner: string,
+  options?: { from?: number; to?: number; bucketSeconds?: number },
+  signal?: AbortSignal
+): Promise<UsageSeriesResponse> {
+  const params = new URLSearchParams({ owner });
+  if (options?.from !== undefined) params.append("from", String(options.from));
+  if (options?.to !== undefined) params.append("to", String(options.to));
+  if (options?.bucketSeconds !== undefined) params.append("bucketSeconds", String(options.bucketSeconds));
+  return request<UsageSeriesResponse>(`/api/v1/assets/${encodeURIComponent(assetId)}/usage?${params}`, {
+    signal,
+  });
+}
+
+export function getAssetTopCallers(
+  assetId: string,
+  owner: string,
+  options?: { from?: number; to?: number; limit?: number },
+  signal?: AbortSignal
+): Promise<TopCallersResponse> {
+  const params = new URLSearchParams({ owner });
+  if (options?.from !== undefined) params.append("from", String(options.from));
+  if (options?.to !== undefined) params.append("to", String(options.to));
+  if (options?.limit !== undefined) params.append("limit", String(options.limit));
+  return request<TopCallersResponse>(
+    `/api/v1/assets/${encodeURIComponent(assetId)}/top-callers?${params}`,
+    { signal }
+  );
+}
+
+export function getAssetRevenueBreakdown(
+  assetId: string,
+  owner: string,
+  signal?: AbortSignal
+): Promise<RevenueBreakdownResponse> {
+  const params = new URLSearchParams({ owner });
+  return request<RevenueBreakdownResponse>(
+    `/api/v1/assets/${encodeURIComponent(assetId)}/revenue-breakdown?${params}`,
+    { signal }
+  );
+}
+
+export function getAssetRemainingCalls(
+  assetId: string,
+  owner: string,
+  signal?: AbortSignal
+): Promise<RemainingCallsResponse> {
+  const params = new URLSearchParams({ owner });
+  return request<RemainingCallsResponse>(
+    `/api/v1/assets/${encodeURIComponent(assetId)}/remaining-calls?${params}`,
+    { signal }
+  );
+}
+
+/**
+ * Buy additional calls for an existing usage-based license — the buyer's
+ * own self-service top-up, distinct from the owner-facing calls above.
+ */
+export function topUpLicense(licenseId: number, buyer: string, calls: number): Promise<TopUpResponse> {
+  return request<TopUpResponse>(`/api/v1/licenses/${licenseId}/topup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ buyer, calls }),
+  });
 }
