@@ -13,7 +13,7 @@ const contractStateRepository = require("../repositories/contractStateRepository
 const priceOracleAggregator = require("../pricing/PriceOracleAggregator");
 const priceCommitmentBuilder = require("../pricing/PriceCommitmentBuilder");
 const stalenessGuard = require("../pricing/StalenessGuard");
-const logger = require("../middleware/logger");
+const { logger } = require("../utils/logger");
 
 // License terms defaults
 const DEFAULT_USAGE_BASED_CALLS = 100;

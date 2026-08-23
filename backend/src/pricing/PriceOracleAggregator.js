@@ -6,7 +6,7 @@
  */
 
 const axios = require("axios");
-const logger = require("../middleware/logger");
+const { logger } = require("../utils/logger");
 
 // Price sources configuration
 const ORACLE_SOURCES = [
@@ -54,10 +54,10 @@ async function fetchFromSource(source, asset, token) {
         timeout: 10000,
         params: {
           ids: asset.toLowerCase(),
-          vs_currencies: token.toUpperCase(),
+          vs_currencies: token.toLowerCase(),
         },
       });
-      price = result.data?.[asset.toLowerCase()]?.[token.toUpperCase()];
+      price = result.data?.[asset.toLowerCase()]?.[token.toLowerCase()];
       timestamp = Date.now();
     }
 
@@ -71,6 +71,7 @@ async function fetchFromSource(source, asset, token) {
       timestamp,
       weight: source.weight,
       age: Date.now() - timestamp,
+      maxStaleness: source.maxStaleness,
     };
   } catch (err) {
     logger.warn(`Failed to fetch from ${source.name}:`, err.message);
@@ -90,7 +91,7 @@ async function fetchReflectorPrice(asset, token) {
       "USDC-USD": 1.0,
       "EUR-USD": 1.08,
     };
-    return mockPrices[`${asset}-${token}`] || null;
+    return mockPrices[`${asset}-${token}`.toUpperCase()] || null;
   } catch (err) {
     logger.warn("Reflector fetch failed:", err.message);
     return null;
