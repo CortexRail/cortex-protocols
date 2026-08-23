@@ -9,7 +9,7 @@ jest.mock("../../repositories/agentBanRepository", () => ({
 
 const agentRepository = require("../../repositories/agentRepository");
 const agentBanRepository = require("../../repositories/agentBanRepository");
-const { registerAgent, updateAgentReputation } = require("../../services/agentService");
+const { registerAgent, submitReputation } = require("../../services/agentService");
 
 describe("agentService ban enforcement", () => {
   beforeEach(() => {
@@ -31,10 +31,10 @@ describe("agentService ban enforcement", () => {
     expect(agentRepository.create).toHaveBeenCalledTimes(1);
   });
 
-  it("updateAgentReputation rejects a banned agent without touching the repository", async () => {
+  it("submitReputation rejects a banned agent without touching the repository", async () => {
     agentBanRepository.isBanned.mockResolvedValue(true);
 
-    await expect(updateAgentReputation(7, 6000)).rejects.toThrow(/banned/);
+    await expect(submitReputation(7, 60, "GVOTER")).rejects.toThrow(/banned/);
     expect(agentRepository.updateReputation).not.toHaveBeenCalled();
   });
 });

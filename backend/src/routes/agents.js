@@ -157,7 +157,7 @@ router.post(
     if (!agent) {
       return res.status(404).json({ error: "Agent not found" });
     }
-    const vote = submitReputation(req.params.id, req.body.score, req.body.voter);
+    const vote = await submitReputation(req.params.id, req.body.score, req.body.voter);
     res.status(201).json(vote);
   })
 );
