@@ -1,0 +1,47 @@
+name: Contract Differential Fuzzing
+
+on:
+  pull_request:
+    paths:
+      - 'contract/**'
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  fuzz:
+    name: Stateful Sequence Fuzzing
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contract/fuzz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nightly Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: |
+          cargo install cargo-fuzz --locked || cargo install cargo-fuzz
+
+      - name: Run Fuzzer (Pull Request - 10 min)
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        run: |
+          cargo +nightly fuzz run stateful_sequence -- -max_total_time=600
+
+      - name: Run Fuzzer (Nightly Schedule - 2 hours)
+        if: github.event_name == 'schedule'
+        run: |
+          cargo +nightly fuzz run stateful_sequence -- -max_total_time=7200
+
+      - name: Upload Crash Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-artifacts
+          path: contract/fuzz/artifacts/
+          if-no-files-found: ignore
