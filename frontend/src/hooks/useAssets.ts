@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Asset, AssetFilters, AssetListResponse, fetchAssets } from "@/lib/api/assets";
+import { useContracts } from "@/components/ContractProvider";
 
 export interface UseAssetsResult {
   data: Asset[];
@@ -68,6 +69,7 @@ export function useAsset(id: string) {
   const [data, setData] = useState<Asset | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { marketplace } = useContracts();
 
   useEffect(() => {
     const load = async () => {
@@ -83,8 +85,8 @@ export function useAsset(id: string) {
         setIsLoading(false);
       }
     };
-    load();
-  }, [id]);
+    if (id) load();
+  }, [id, marketplace]);
 
   return { data, isLoading, error };
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
+import { ContractProvider } from "@/components/ContractProvider";
 import Navbar from "@/components/Navbar";
 
 const geistSans = Geist({
@@ -44,8 +45,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body>
         <ThemeProvider>
-          <Navbar />
-          {children}
+          <ContractProvider
+            network={process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet"}
+            rpcUrl={process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org"}
+          >
+            <Navbar />
+            {children}
+          </ContractProvider>
         </ThemeProvider>
       </body>
     </html>
