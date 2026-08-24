@@ -15,8 +15,15 @@ export function AssetCard({ asset }: AssetCardProps) {
       <div className="group h-full p-5 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-purple-500 transition-colors cursor-pointer">
         {/* Header with type and license */}
         <div className="flex items-start justify-between mb-3 gap-2">
-          <AssetTypeBadge type={asset.type} variant="sm" />
-          <LicenseBadge type={asset.licenseType} />
+          <AssetTypeBadge type={asset.assetType || asset.type} variant="sm" />
+          <div className="flex items-center gap-2">
+            {asset.previewOutput && (
+              <span className="px-2 py-0.5 text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full">
+                Preview
+              </span>
+            )}
+            <LicenseBadge type={asset.licenseType} />
+          </div>
         </div>
 
         {/* Name */}

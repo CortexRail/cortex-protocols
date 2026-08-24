@@ -200,6 +200,7 @@ router.post(
     body("price").isInt({ min: 0 }),
     body("version").optional().isInt({ min: 1 }),
     body("tags").optional().isArray(),
+    body("previewOutput").optional().isString().trim().isLength({ max: 500 }),
   ],
   validate,
   asyncHandler(async (req, res) => {

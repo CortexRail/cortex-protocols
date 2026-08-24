@@ -15,6 +15,7 @@ export interface Asset {
   indexedAt: number;
   updatedAt: number;
   deletedAt: number | null;
+  previewOutput?: string | null;
 }
 
 export interface AssetListResponse {
