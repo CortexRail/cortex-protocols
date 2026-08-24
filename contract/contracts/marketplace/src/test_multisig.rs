@@ -1,8 +1,4 @@
-use super::*;
-use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger as _, MockAuth, MockAuthInvoke},
-    token, vec, Address, Bytes, BytesN, Env, FromVal, IntoVal, Map, String,
-};
+
 
 fn setup_multisig() -> (Env, MarketplaceContractClient<'static>, Address, Address, token::StellarAssetClient<'static>) {
     let env = Env::default();
@@ -55,6 +51,7 @@ fn test_multisig_3_propose_purchase() {
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &100,
+        &vec![&env],
     );
 
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
@@ -69,7 +66,7 @@ fn test_multisig_4_approve_purchase_no_auto_exec() {
     let s2 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &2, &vec![&env, s1.clone(), s2.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     client.approve_purchase(&s1, &proposal_id);
@@ -83,7 +80,7 @@ fn test_multisig_5_approve_purchase_auto_exec() {
     let s2 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &2, &vec![&env, s1.clone(), s2.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     token_client.mint(&org, &1000);
@@ -98,7 +95,7 @@ fn test_multisig_6_reject_purchase() {
     let s1 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &1, &vec![&env, s1.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     client.reject_purchase(&s1, &proposal_id, &99);
@@ -111,7 +108,7 @@ fn test_multisig_7_non_signer_approve() {
     let s1 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &1, &vec![&env, s1.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     let res = client.try_approve_purchase(&Address::generate(&env), &proposal_id);
@@ -125,7 +122,7 @@ fn test_multisig_8_non_signer_reject() {
     let s1 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &1, &vec![&env, s1.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     let res = client.try_reject_purchase(&Address::generate(&env), &proposal_id, &1);
@@ -140,7 +137,7 @@ fn test_multisig_9_double_approve() {
     let s2 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &2, &vec![&env, s1.clone(), s2.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     client.approve_purchase(&s1, &proposal_id);
@@ -155,7 +152,7 @@ fn test_multisig_10_expire_proposals() {
     let s1 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &1, &vec![&env, s1.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     client.expire_stale_proposals(&vec![&env, proposal_id]);
@@ -171,7 +168,7 @@ fn test_multisig_11_reject_already_expired() {
     let s1 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &1, &vec![&env, s1.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     client.expire_stale_proposals(&vec![&env, proposal_id]);
@@ -188,7 +185,7 @@ fn test_multisig_12_approve_already_rejected() {
     let s2 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &2, &vec![&env, s1.clone(), s2.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     client.reject_purchase(&s1, &proposal_id, &1);
@@ -217,7 +214,7 @@ fn test_multisig_14_exact_threshold() {
     let s3 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &2, &vec![&env, s1.clone(), s2.clone(), s3.clone()]);
     
-    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let asset_id = client.list_asset(&seller, &String::from_str(&env, "A"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     let proposal_id = client.propose_purchase(&org, &asset_id, &LicenseType::Perpetual, &token_client.address);
 
     token_client.mint(&org, &1000);
@@ -232,8 +229,8 @@ fn test_multisig_15_expire_multiple() {
     let s1 = Address::generate(&env);
     client.create_approval_policy(&org, &1000, &1, &vec![&env, s1.clone()]);
     
-    let a1 = client.list_asset(&seller, &String::from_str(&env, "A1"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
-    let a2 = client.list_asset(&seller, &String::from_str(&env, "A2"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100);
+    let a1 = client.list_asset(&seller, &String::from_str(&env, "A1"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
+    let a2 = client.list_asset(&seller, &String::from_str(&env, "A2"), &String::from_str(&env, "D"), &AssetType::Prompt, &LicenseType::Perpetual, &100, &vec![&env]);
     
     let p1 = client.propose_purchase(&org, &a1, &LicenseType::Perpetual, &token_client.address);
     let p2 = client.propose_purchase(&org, &a2, &LicenseType::Perpetual, &token_client.address);

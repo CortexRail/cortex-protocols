@@ -50,8 +50,20 @@ const POLICIES: Symbol = symbol_short!("POLICIES");
 const PROPOSALS: Symbol = symbol_short!("PROPOSALS");
 const PROPOSAL_COUNT: Symbol = symbol_short!("PROP_CNT");
 
+const BONDS: Symbol = symbol_short!("BONDS");
+const M_DISPUTES: Symbol = symbol_short!("M_DISP");
+const STK_ARBS: Symbol = symbol_short!("STK_ARBS");
+const T_BAL: Symbol = symbol_short!("T_BAL");
+
+const BOND_COOLDOWN: u64 = 100;
+const RESPONSE_WINDOW: u64 = 100;
+const REVEAL_WINDOW: u64 = 100;
+const MAX_DISPUTE_ROUNDS: u32 = 4;
+
 /// Hard cap on concurrently listed assets.
 const MAX_ASSETS: u64 = 10_000;
+const MAX_NAME_LEN: u32 = 200;
+const MAX_DESC_LEN: u32 = 2000;
 
 /// Any reveal landing in the final `SNIPING_WINDOW` ledgers of the reveal
 /// window extends the window by `SNIPING_WINDOW` more ledgers (anti-sniping).
@@ -234,6 +246,65 @@ pub struct PurchaseDispute {
     pub created_at: u64,
     pub status: DisputeStatus,
     pub decision: RefundDecision,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputePhase {
+    Response,
+    Reveal,
+    Resolved,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeOutcome {
+    None,
+    BuyerWins,
+    SellerWins,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetBond {
+    pub seller: Address,
+    pub asset_id: u64,
+    pub amount: i128,
+    pub last_dispute_resolved_at: u64,
+    pub active_disputes: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommitRevealDispute {
+    pub dispute_id: u64,
+    pub license_id: u64,
+    pub asset_id: u64,
+    pub buyer: Address,
+    pub seller: Address,
+    pub round: u32,
+    pub phase: DisputePhase,
+    pub buyer_bond: i128,
+    pub seller_bond: i128,
+    pub buyer_claim_hash: BytesN<32>,
+    pub seller_response_hash: Option<BytesN<32>>,
+    pub buyer_revealed: bool,
+    pub seller_revealed: bool,
+    pub buyer_evidence: Option<Bytes>,
+    pub seller_evidence: Option<Bytes>,
+    pub response_deadline: u64,
+    pub reveal_deadline: u64,
+    pub outcome: DisputeOutcome,
+    pub resolved: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakedArbiter {
+    pub address: Address,
+    pub stake: i128,
+    pub active: bool,
+    pub ruling_count: u32,
 }
 
 /// Exact pre-versioning asset encoding retained for storage migration.
@@ -494,6 +565,45 @@ fn get_arbitrators_list(env: &Env) -> Vec<Address> {
         .persistent()
         .get(&ARBITRATORS)
         .unwrap_or(Vec::new(env))
+}
+
+fn get_bonds_map(env: &Env) -> Map<u64, AssetBond> {
+    env.storage()
+        .persistent()
+        .get(&BONDS)
+        .unwrap_or(Map::new(env))
+}
+
+fn set_bond(env: &Env, asset_id: u64, bond: &AssetBond) {
+    let mut bonds = get_bonds_map(env);
+    bonds.set(asset_id, bond.clone());
+    env.storage().persistent().set(&BONDS, &bonds);
+}
+
+fn get_multi_disputes_map(env: &Env) -> Map<u64, CommitRevealDispute> {
+    env.storage()
+        .persistent()
+        .get(&M_DISPUTES)
+        .unwrap_or(Map::new(env))
+}
+
+fn set_multi_dispute(env: &Env, dispute_id: u64, dispute: &CommitRevealDispute) {
+    let mut disputes = get_multi_disputes_map(env);
+    disputes.set(dispute_id, dispute.clone());
+    env.storage().persistent().set(&M_DISPUTES, &disputes);
+}
+
+fn get_staked_arbiters_map(env: &Env) -> Map<Address, StakedArbiter> {
+    env.storage()
+        .persistent()
+        .get(&STK_ARBS)
+        .unwrap_or(Map::new(env))
+}
+
+fn set_staked_arbiter(env: &Env, arbiter: Address, rec: &StakedArbiter) {
+    let mut arbs = get_staked_arbiters_map(env);
+    arbs.set(arbiter, rec.clone());
+    env.storage().persistent().set(&STK_ARBS, &arbs);
 }
 
 // ── Contract ─────────────────────────────────────────────────────────────────
@@ -1195,8 +1305,8 @@ impl MarketplaceContract {
         };
 
         let mut winners: Vec<Address> = Vec::new(&env);
-        for (bidder, _) in ranked.iter().take(capacity) {
-            winners.push_back(bidder.clone());
+        for item in ranked.iter().take(capacity) {
+            winners.push_back(item.0.clone());
         }
 
         let contract = env.current_contract_address();
@@ -1756,6 +1866,423 @@ impl MarketplaceContract {
             return SubscriptionStatus::Active;
         }
         SubscriptionStatus::Expired
+    }
+
+    // ── Bond Collateral & Multi-Round Dispute Game ────────────────────────────
+
+    pub fn post_bond(env: Env, seller: Address, asset_id: u64, amount: i128) -> Result<(), MarketplaceError> {
+        seller.require_auth();
+        if amount <= 0 {
+            return Err(MarketplaceError::InvalidPayment);
+        }
+        let asset = load_asset(&env, asset_id).ok_or(MarketplaceError::AssetNotFound)?;
+        if asset.owner != seller {
+            return Err(MarketplaceError::NotOwner);
+        }
+        let mut bond = get_bonds_map(&env).get(asset_id).unwrap_or(AssetBond {
+            seller: seller.clone(),
+            asset_id,
+            amount: 0,
+            last_dispute_resolved_at: 0,
+            active_disputes: 0,
+        });
+        bond.amount += amount;
+        set_bond(&env, asset_id, &bond);
+        env.events().publish(
+            (Symbol::new(&env, "BOND_POSTED"), seller.clone()),
+            (asset_id, amount, bond.amount),
+        );
+        Ok(())
+    }
+
+    pub fn withdraw_bond(env: Env, seller: Address, asset_id: u64, amount: i128) -> Result<(), MarketplaceError> {
+        seller.require_auth();
+        if amount <= 0 {
+            return Err(MarketplaceError::InvalidPayment);
+        }
+        let mut bond = get_bonds_map(&env).get(asset_id).ok_or(MarketplaceError::BondNotFound)?;
+        if bond.seller != seller {
+            return Err(MarketplaceError::NotOwner);
+        }
+        if bond.active_disputes > 0 {
+            return Err(MarketplaceError::BondWithdrawalBlocked);
+        }
+        let now = env.ledger().timestamp();
+        if now < bond.last_dispute_resolved_at + BOND_COOLDOWN {
+            return Err(MarketplaceError::BondWithdrawalBlocked);
+        }
+        if bond.amount < amount {
+            return Err(MarketplaceError::InsufficientBond);
+        }
+        bond.amount -= amount;
+        set_bond(&env, asset_id, &bond);
+        env.events().publish(
+            (Symbol::new(&env, "BOND_WITHDRAWN"), seller.clone()),
+            (asset_id, amount, bond.amount),
+        );
+        Ok(())
+    }
+
+    pub fn open_dispute(
+        env: Env,
+        buyer: Address,
+        license_id: u64,
+        claim_hash: BytesN<32>,
+        bond: i128,
+    ) -> Result<u64, MarketplaceError> {
+        buyer.require_auth();
+        if bond <= 0 {
+            return Err(MarketplaceError::InvalidPayment);
+        }
+        let license = load_license(&env, &buyer, license_id).ok_or(MarketplaceError::LicenseNotFound)?;
+        if license.buyer != buyer {
+            return Err(MarketplaceError::Unauthorized);
+        }
+        let asset_id = license.asset_id;
+        let asset = load_asset(&env, asset_id).ok_or(MarketplaceError::AssetNotFound)?;
+        let seller = asset.owner;
+
+        let mut seller_bond = get_bonds_map(&env).get(asset_id).ok_or(MarketplaceError::BondNotFound)?;
+        if seller_bond.amount < bond {
+            return Err(MarketplaceError::InsufficientBond);
+        }
+        seller_bond.active_disputes += 1;
+        set_bond(&env, asset_id, &seller_bond);
+
+        let dsp_count: u64 = env.storage().instance().get(&DISPUTE_COUNT).unwrap_or(0u64);
+        let dispute_id = dsp_count + 1;
+        env.storage().instance().set(&DISPUTE_COUNT, &dispute_id);
+
+        let now = env.ledger().timestamp();
+        let dispute = CommitRevealDispute {
+            dispute_id,
+            license_id,
+            asset_id,
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            round: 1,
+            phase: DisputePhase::Response,
+            buyer_bond: bond,
+            seller_bond: bond,
+            buyer_claim_hash: claim_hash.clone(),
+            seller_response_hash: None,
+            buyer_revealed: false,
+            seller_revealed: false,
+            buyer_evidence: None,
+            seller_evidence: None,
+            response_deadline: now + RESPONSE_WINDOW,
+            reveal_deadline: 0,
+            outcome: DisputeOutcome::None,
+            resolved: false,
+        };
+        set_multi_dispute(&env, dispute_id, &dispute);
+
+        env.events().publish(
+            (Symbol::new(&env, "DISPUTE_OPENED"), buyer.clone()),
+            (dispute_id, license_id, bond),
+        );
+        Ok(dispute_id)
+    }
+
+    pub fn respond(
+        env: Env,
+        seller: Address,
+        dispute_id: u64,
+        response_hash: BytesN<32>,
+    ) -> Result<(), MarketplaceError> {
+        seller.require_auth();
+        let mut dispute = get_multi_disputes_map(&env)
+            .get(dispute_id)
+            .ok_or(MarketplaceError::DisputeNotFound)?;
+
+        if dispute.seller != seller {
+            return Err(MarketplaceError::Unauthorized);
+        }
+        if dispute.resolved || dispute.phase != DisputePhase::Response {
+            return Err(MarketplaceError::DisputeNotActive);
+        }
+        let now = env.ledger().timestamp();
+        if now > dispute.response_deadline {
+            return Err(MarketplaceError::ResponseWindowExpired);
+        }
+
+        dispute.seller_response_hash = Some(response_hash.clone());
+        dispute.phase = DisputePhase::Reveal;
+        dispute.reveal_deadline = now + REVEAL_WINDOW;
+        set_multi_dispute(&env, dispute_id, &dispute);
+
+        env.events().publish(
+            (Symbol::new(&env, "DISPUTE_RESPONDED"), seller.clone()),
+            (dispute_id, response_hash),
+        );
+        Ok(())
+    }
+
+    pub fn reveal(
+        env: Env,
+        party: Address,
+        dispute_id: u64,
+        evidence: Bytes,
+        salt: BytesN<32>,
+    ) -> Result<(), MarketplaceError> {
+        party.require_auth();
+        let mut dispute = get_multi_disputes_map(&env)
+            .get(dispute_id)
+            .ok_or(MarketplaceError::DisputeNotFound)?;
+
+        if dispute.resolved || dispute.phase != DisputePhase::Reveal {
+            return Err(MarketplaceError::DisputeNotActive);
+        }
+        let now = env.ledger().timestamp();
+        if now > dispute.reveal_deadline {
+            return Err(MarketplaceError::RevealWindowExpired);
+        }
+
+        let mut payload = Bytes::new(&env);
+        payload.append(&evidence);
+        payload.append(&Bytes::from(salt.clone()));
+        let computed_hash: BytesN<32> = env.crypto().sha256(&payload).into();
+
+        if party == dispute.buyer {
+            if dispute.buyer_revealed {
+                return Err(MarketplaceError::AlreadyRevealed);
+            }
+            if computed_hash != dispute.buyer_claim_hash {
+                return Err(MarketplaceError::CommitmentMismatch);
+            }
+            dispute.buyer_revealed = true;
+            dispute.buyer_evidence = Some(evidence);
+        } else if party == dispute.seller {
+            if dispute.seller_revealed {
+                return Err(MarketplaceError::AlreadyRevealed);
+            }
+            let resp_hash = dispute.seller_response_hash.clone().ok_or(MarketplaceError::DisputeNotActive)?;
+            if computed_hash != resp_hash {
+                return Err(MarketplaceError::CommitmentMismatch);
+            }
+            dispute.seller_revealed = true;
+            dispute.seller_evidence = Some(evidence);
+        } else {
+            return Err(MarketplaceError::Unauthorized);
+        }
+
+        set_multi_dispute(&env, dispute_id, &dispute);
+        env.events().publish(
+            (Symbol::new(&env, "EVIDENCE_REVEALED"), party.clone()),
+            (dispute_id, dispute.round),
+        );
+        Ok(())
+    }
+
+    pub fn escalate(env: Env, party: Address, dispute_id: u64) -> Result<(), MarketplaceError> {
+        party.require_auth();
+        let mut dispute = get_multi_disputes_map(&env)
+            .get(dispute_id)
+            .ok_or(MarketplaceError::DisputeNotFound)?;
+
+        if party != dispute.buyer && party != dispute.seller {
+            return Err(MarketplaceError::Unauthorized);
+        }
+        if dispute.resolved {
+            return Err(MarketplaceError::DisputeAlreadyResolved);
+        }
+        if dispute.round >= MAX_DISPUTE_ROUNDS {
+            return Err(MarketplaceError::InvalidDisputeRound);
+        }
+
+        dispute.round += 1;
+        dispute.buyer_bond *= 2;
+        dispute.seller_bond *= 2;
+        dispute.phase = DisputePhase::Response;
+        dispute.seller_response_hash = None;
+        dispute.buyer_revealed = false;
+        dispute.seller_revealed = false;
+        dispute.buyer_evidence = None;
+        dispute.seller_evidence = None;
+        let now = env.ledger().timestamp();
+        dispute.response_deadline = now + RESPONSE_WINDOW;
+        dispute.reveal_deadline = 0;
+
+        set_multi_dispute(&env, dispute_id, &dispute);
+        env.events().publish(
+            (Symbol::new(&env, "DISPUTE_ESCALATED"), party.clone()),
+            (dispute_id, dispute.round, dispute.buyer_bond),
+        );
+        Ok(())
+    }
+
+    pub fn resolve(env: Env, dispute_id: u64) -> Result<(), MarketplaceError> {
+        let mut dispute = get_multi_disputes_map(&env)
+            .get(dispute_id)
+            .ok_or(MarketplaceError::DisputeNotFound)?;
+
+        if dispute.resolved {
+            return Err(MarketplaceError::DisputeAlreadyResolved);
+        }
+
+        let now = env.ledger().timestamp();
+        let mut outcome = dispute.outcome.clone();
+
+        if outcome == DisputeOutcome::None {
+            if dispute.phase == DisputePhase::Response && now > dispute.response_deadline && dispute.seller_response_hash.is_none() {
+                outcome = DisputeOutcome::BuyerWins;
+            } else if dispute.phase == DisputePhase::Reveal && now > dispute.reveal_deadline {
+                if dispute.buyer_revealed && !dispute.seller_revealed {
+                    outcome = DisputeOutcome::BuyerWins;
+                } else if dispute.seller_revealed && !dispute.buyer_revealed {
+                    outcome = DisputeOutcome::SellerWins;
+                } else if dispute.buyer_revealed && dispute.seller_revealed {
+                    outcome = DisputeOutcome::BuyerWins;
+                } else {
+                    outcome = DisputeOutcome::SellerWins;
+                }
+            } else if dispute.buyer_revealed && dispute.seller_revealed {
+                outcome = DisputeOutcome::BuyerWins;
+            }
+        }
+
+        if outcome == DisputeOutcome::None {
+            return Err(MarketplaceError::DisputeNotActive);
+        }
+
+        let (winner, winner_bond, _loser, loser_bond, is_seller_loser): (Address, i128, Address, i128, bool) = match outcome {
+            DisputeOutcome::BuyerWins => (
+                dispute.buyer.clone(),
+                dispute.buyer_bond,
+                dispute.seller.clone(),
+                dispute.seller_bond,
+                true,
+            ),
+            DisputeOutcome::SellerWins => (
+                dispute.seller.clone(),
+                dispute.seller_bond,
+                dispute.buyer.clone(),
+                dispute.buyer_bond,
+                false,
+            ),
+            DisputeOutcome::None => unreachable!(),
+        };
+
+        let winner_share = loser_bond / 2;
+        let treasury_share = loser_bond - winner_share;
+
+        let cur_treasury: i128 = env.storage().instance().get(&T_BAL).unwrap_or(0i128);
+        env.storage().instance().set(&T_BAL, &(cur_treasury + treasury_share));
+
+        if is_seller_loser {
+            if let Some(mut seller_bond_rec) = get_bonds_map(&env).get(dispute.asset_id) {
+                seller_bond_rec.amount = seller_bond_rec.amount.saturating_sub(loser_bond);
+                if seller_bond_rec.active_disputes > 0 {
+                    seller_bond_rec.active_disputes -= 1;
+                }
+                seller_bond_rec.last_dispute_resolved_at = now;
+                set_bond(&env, dispute.asset_id, &seller_bond_rec);
+            }
+        } else {
+            if let Some(mut seller_bond_rec) = get_bonds_map(&env).get(dispute.asset_id) {
+                if seller_bond_rec.active_disputes > 0 {
+                    seller_bond_rec.active_disputes -= 1;
+                }
+                seller_bond_rec.last_dispute_resolved_at = now;
+                set_bond(&env, dispute.asset_id, &seller_bond_rec);
+            }
+        }
+
+        dispute.outcome = outcome.clone();
+        dispute.resolved = true;
+        set_multi_dispute(&env, dispute_id, &dispute);
+
+        env.events().publish(
+            (Symbol::new(&env, "DISPUTE_RESOLVED"), winner.clone()),
+            (dispute_id, winner_bond + winner_share, treasury_share),
+        );
+        Ok(())
+    }
+
+    pub fn arbitrate(
+        env: Env,
+        arbiter: Address,
+        dispute_id: u64,
+        ruling: u32,
+    ) -> Result<(), MarketplaceError> {
+        arbiter.require_auth();
+        let mut arb_rec = get_staked_arbiters_map(&env)
+            .get(arbiter.clone())
+            .ok_or(MarketplaceError::ArbiterNotFound)?;
+        if !arb_rec.active {
+            return Err(MarketplaceError::NotArbitrator);
+        }
+
+        let mut dispute = get_multi_disputes_map(&env)
+            .get(dispute_id)
+            .ok_or(MarketplaceError::DisputeNotFound)?;
+
+        if dispute.resolved {
+            return Err(MarketplaceError::DisputeAlreadyResolved);
+        }
+        if dispute.round < MAX_DISPUTE_ROUNDS {
+            return Err(MarketplaceError::DisputeNotFinalRound);
+        }
+
+        let outcome = match ruling {
+            1 => DisputeOutcome::BuyerWins,
+            2 => DisputeOutcome::SellerWins,
+            _ => return Err(MarketplaceError::InvalidRuling),
+        };
+
+        arb_rec.ruling_count += 1;
+        set_staked_arbiter(&env, arbiter, &arb_rec);
+
+        dispute.outcome = outcome;
+        set_multi_dispute(&env, dispute_id, &dispute);
+
+        Self::resolve(env, dispute_id)
+    }
+
+    pub fn register_staked_arbiter(env: Env, admin: Address, arbiter: Address, stake: i128) -> Result<(), MarketplaceError> {
+        admin.require_auth();
+        let owner: Address = env.storage().instance().get(&OWNER).expect("contract not initialized");
+        if admin != owner {
+            return Err(MarketplaceError::Unauthorized);
+        }
+        let rec = StakedArbiter {
+            address: arbiter.clone(),
+            stake,
+            active: true,
+            ruling_count: 0,
+        };
+        set_staked_arbiter(&env, arbiter, &rec);
+        Ok(())
+    }
+
+    pub fn slash_arbiter(env: Env, admin: Address, arbiter: Address, amount: i128) -> Result<(), MarketplaceError> {
+        admin.require_auth();
+        let owner: Address = env.storage().instance().get(&OWNER).expect("contract not initialized");
+        if admin != owner {
+            return Err(MarketplaceError::Unauthorized);
+        }
+        let mut rec = get_staked_arbiters_map(&env).get(arbiter.clone()).ok_or(MarketplaceError::ArbiterNotFound)?;
+        rec.stake = rec.stake.saturating_sub(amount);
+        if rec.stake <= 0 {
+            rec.active = false;
+        }
+        set_staked_arbiter(&env, arbiter, &rec);
+
+        let cur_treasury: i128 = env.storage().instance().get(&T_BAL).unwrap_or(0i128);
+        env.storage().instance().set(&T_BAL, &(cur_treasury + amount));
+        Ok(())
+    }
+
+    pub fn get_bond(env: Env, asset_id: u64) -> Option<AssetBond> {
+        get_bonds_map(&env).get(asset_id)
+    }
+
+    pub fn get_multi_dispute(env: Env, dispute_id: u64) -> Option<CommitRevealDispute> {
+        get_multi_disputes_map(&env).get(dispute_id)
+    }
+
+    pub fn get_treasury_balance(env: Env) -> i128 {
+        env.storage().instance().get(&T_BAL).unwrap_or(0i128)
     }
 }
 
