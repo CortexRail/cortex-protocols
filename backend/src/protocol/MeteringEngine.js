@@ -109,6 +109,31 @@ function expectedSigner(stream, tokenClaims) {
   return tokenClaims?.sellerKey || stream.recipient;
 }
 
+// Postgres's row lock queue serializes concurrent meterCall transactions for
+// the same stream, but does not preserve the order they were invoked in —
+// and call_index is assigned by the caller before the call is made, so a
+// buyer issuing several calls back-to-back expects them billed in that same
+// order. Chaining each stream's calls onto an in-process tail makes the
+// invocation order the processing order, so the attestation verifier's
+// monotonic call_index check (a genuine replay defense, not a bug) sees calls
+// in the order they were actually made instead of whatever order the DB
+// happened to grant the lock.
+const streamQueues = new Map();
+
+function enqueueForStream(streamId, task) {
+  const key = String(streamId);
+  const previous = streamQueues.get(key) || Promise.resolve();
+  const next = previous.catch(() => {}).then(task);
+  streamQueues.set(key, next);
+  // A rejected `next` is the caller's to handle; observe it separately here
+  // (after absorbing the rejection) so cleanup never leaves an unhandled
+  // rejection of its own dangling off the same promise.
+  next.catch(() => {}).then(() => {
+    if (streamQueues.get(key) === next) streamQueues.delete(key);
+  });
+  return next;
+}
+
 /**
  * Bill one call.
  *
@@ -137,7 +162,7 @@ async function meterCall(tokenString, { payloadHash = null, attestation = null }
     throw err;
   }
 
-  return withTransaction(async (client) => {
+  return enqueueForStream(streamId, () => withTransaction(async (client) => {
     // 1. Lock the stream row FOR UPDATE
     const stream = await streamRepository.findAndLockById(streamId, client);
     if (!stream) {
@@ -228,7 +253,7 @@ async function meterCall(tokenString, { payloadHash = null, attestation = null }
         ? { callIndex: Number(attestation.call_index), leafHash: attestationResult.leafHash }
         : null,
     };
-  });
+  }));
 }
 
 module.exports = {

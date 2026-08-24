@@ -80,7 +80,7 @@ export default function MarketplacePage() {
           {/* Sidebar */}
           <div className="md:col-span-1">
             <FilterSidebar
-              selectedType={filters.type}
+              selectedType={filters.assetType}
               selectedLicense={filters.licenseType}
               priceRange={[
                 filters.minPrice || 0,

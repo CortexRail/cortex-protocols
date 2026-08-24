@@ -13,14 +13,54 @@ const {
 const assetRepository = require("../repositories/assetRepository");
 const { purchaseLicense } = require("../services/licenseService");
 const { fileReport, REPORT_REASONS } = require("../services/reportService");
+const assetAnalyticsService = require("../services/assetAnalyticsService");
 const { isValidStellarAddress } = require("../utils/stellar");
 const { publicReadLimiter, writeLimiter } = require("../middleware/rateLimiter");
 
 const router = Router();
 
 /**
- * GET /api/v1/assets
- * List intelligence assets with optional filtering & pagination.
+ * @swagger
+ * /api/v1/assets:
+ *   get:
+ *     summary: List intelligence assets with optional filtering & pagination.
+ *     tags: [Assets]
+ *     parameters:
+ *       - in: query
+ *         name: assetType
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: licenseType
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: owner
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: minPrice
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: maxPrice
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: A list of assets
  */
 router.get(
   "/",
@@ -64,8 +104,29 @@ router.get(
 );
 
 /**
- * POST /api/v1/assets/:id/delist
- * Soft-delete an asset owned by the caller.
+ * @swagger
+ * /api/v1/assets/{id}/delist:
+ *   post:
+ *     summary: Soft-delete an asset owned by the caller.
+ *     tags: [Assets]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               owner:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Asset delisted
  */
 router.post(
   "/:id/delist",
@@ -89,8 +150,31 @@ router.post(
 );
 
 /**
- * PATCH /api/v1/assets/:id/price
- * Update the price of an asset owned by the caller.
+ * @swagger
+ * /api/v1/assets/{id}/price:
+ *   patch:
+ *     summary: Update the price of an asset owned by the caller.
+ *     tags: [Assets]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               owner:
+ *                 type: string
+ *               price:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Price updated
  */
 router.patch(
   "/:id/price",
@@ -117,8 +201,20 @@ router.patch(
 );
 
 /**
- * GET /api/v1/assets/:id
- * Get a single asset by its on-chain ID.
+ * @swagger
+ * /api/v1/assets/{id}:
+ *   get:
+ *     summary: Get a single asset by its on-chain ID.
+ *     tags: [Assets]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Asset details
  */
 router.get(
   "/:id",
@@ -133,10 +229,88 @@ router.get(
     res.json(asset);
   })
 );
+/**
+ * GET /api/v1/assets/:id/analytics
+ * Returns total revenue, purchase count, unique buyer count, and revenue over time.
+ * Secure with owner-only auth.
+ */
+router.get(
+  "/:id/analytics",
+  publicReadLimiter,
+  [param("id").isInt({ min: 1 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const asset = await getAsset(req.params.id);
+    if (!asset) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+
+    const signatureHex = req.header("x-stellar-signature");
+    const account = req.header("x-stellar-account");
+
+    if (!signatureHex || !account) {
+      return res.status(401).json({ error: "Missing signature or account headers" });
+    }
+
+    if (account !== asset.owner) {
+      return res.status(403).json({ error: "Not the asset owner" });
+    }
+
+    const { Keypair } = require("@stellar/stellar-sdk");
+    try {
+      const kp = Keypair.fromPublicKey(account);
+      // We expect the signed message to be the stringified asset id
+      const message = Buffer.from(req.params.id.toString());
+      const signature = Buffer.from(signatureHex, "hex");
+      if (!kp.verify(message, signature)) {
+        return res.status(403).json({ error: "Invalid signature" });
+      }
+    } catch (err) {
+      return res.status(401).json({ error: "Invalid signature format" });
+    }
+
+    const { getAssetAnalytics } = require("../repositories/analyticsRepository");
+    const data = await getAssetAnalytics(asset.id);
+    res.json(data);
+  })
+);
 
 /**
- * POST /api/v1/assets
- * Index an asset (called by event listener after on-chain listing).
+ * @swagger
+ * /api/v1/assets:
+ *   post:
+ *     summary: Index an asset (called by event listener after on-chain listing).
+ *     tags: [Assets]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: integer
+ *               owner:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               assetType:
+ *                 type: string
+ *               licenseType:
+ *                 type: string
+ *               price:
+ *                 type: integer
+ *               version:
+ *                 type: integer
+ *               tags:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       201:
+ *         description: Asset created
  */
 router.post(
   "/",
@@ -164,9 +338,31 @@ router.post(
 );
 
 /**
- * POST /api/v1/assets/:id/purchase
- * Purchase a license for an asset. Creates the license row and bumps the
- * asset's usage counter in a single transaction.
+ * @swagger
+ * /api/v1/assets/{id}/purchase:
+ *   post:
+ *     summary: Purchase a license for an asset.
+ *     tags: [Assets]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               buyer:
+ *                 type: string
+ *               assetVersion:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: License purchased
  */
 router.post(
   "/:id/purchase",
@@ -198,9 +394,33 @@ router.post(
 );
 
 /**
- * POST /api/v1/assets/:id/report
- * File a moderation report against an asset. Auto-flags the asset once its
- * report count crosses reportService.FLAG_THRESHOLD.
+ * @swagger
+ * /api/v1/assets/{id}/report:
+ *   post:
+ *     summary: File a moderation report against an asset.
+ *     tags: [Assets]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reporter:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *               details:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Report filed
  */
 router.post(
   "/:id/report",
@@ -228,9 +448,25 @@ router.post(
 );
 
 /**
- * GET /api/v1/assets/:id/price
- * Get current converted price in a requested token with commitment payload.
- * Query param: token (Stellar address)
+ * @swagger
+ * /api/v1/assets/{id}/price:
+ *   get:
+ *     summary: Get current converted price in a requested token with commitment payload.
+ *     tags: [Assets]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Price commitment
  */
 router.get(
   "/:id/price",
@@ -254,8 +490,14 @@ router.get(
 );
 
 /**
- * GET /api/v1/assets/types/list
- * Return all valid asset types and license types.
+ * @swagger
+ * /api/v1/assets/types/list:
+ *   get:
+ *     summary: Return all valid asset types and license types.
+ *     tags: [Assets]
+ *     responses:
+ *       200:
+ *         description: List of types
  */
 router.get("/types/list", publicReadLimiter, (_req, res) => {
   res.json({ assetTypes: ASSET_TYPES, licenseTypes: LICENSE_TYPES });

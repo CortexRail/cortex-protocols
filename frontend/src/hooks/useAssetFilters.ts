@@ -15,7 +15,7 @@ export function useAssetFilters(
   const updateType = useCallback((type: AssetType | "all" | undefined) => {
     setFilters((prev) => ({
       ...prev,
-      type: type === "all" ? undefined : type,
+      assetType: type === "all" ? undefined : type,
       page: 1,
     }));
   }, []);

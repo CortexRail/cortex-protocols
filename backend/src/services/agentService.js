@@ -99,7 +99,11 @@ function _getAgentSync(id) {
   return agentsIndex.get(String(id)) || null;
 }
 
-function submitReputation(agentId, score, voter) {
+async function submitReputation(agentId, score, voter) {
+  if (await agentBanRepository.isBanned(agentId)) {
+    throw new Error(`Agent ${agentId} is banned`);
+  }
+
   // score is 0-100, stored as-is
   if (!reputationHistoryIndex.has(String(agentId))) {
     reputationHistoryIndex.set(String(agentId), []);

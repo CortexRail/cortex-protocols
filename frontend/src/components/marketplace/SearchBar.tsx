@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
@@ -9,16 +9,13 @@ interface SearchBarProps {
 
 export function SearchBar({ onSearch, resultCount }: SearchBarProps) {
   const [query, setQuery] = useState("");
-  const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+
 
   useEffect(() => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-
     const timer = setTimeout(() => {
       onSearch(query);
     }, 300);
 
-    setDebounceTimer(timer);
     return () => clearTimeout(timer);
   }, [query, onSearch]);
 

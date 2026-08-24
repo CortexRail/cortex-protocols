@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Asset, AssetFilters, AssetListResponse, fetchAssets } from "@/lib/api/assets";
 import { useContracts } from "@/components/ContractProvider";
 
@@ -17,23 +17,36 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<AssetListResponse["meta"] | null>(null);
-
-  const load = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await fetchAssets(filters);
-      setData(result.data);
-      setMeta(result.meta);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch assets");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Bumped by `mutate()` to force a refetch without duplicating the fetch
+  // logic outside the effect (see useAsset below for why it stays inline).
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const result = await fetchAssets(filters);
+        if (cancelled) return;
+        setData(result.data);
+        setMeta(result.meta);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to fetch assets");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
     load();
+
+    return () => {
+      cancelled = true;
+    };
+    // Depends on individual filter fields (not the `filters` object) so a
+    // fresh object literal with unchanged values doesn't retrigger a fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     filters.search,
     filters.assetType,
@@ -44,9 +57,12 @@ export function useAssets(filters: AssetFilters = {}): UseAssetsResult {
     filters.sortBy,
     filters.page,
     filters.limit,
+    reloadToken,
   ]);
 
-  return { data, isLoading, error, mutate: load, meta };
+  const mutate = useCallback(() => setReloadToken((token) => token + 1), []);
+
+  return { data, isLoading, error, mutate, meta };
 }
 
 export function useAsset(id: string) {
@@ -60,30 +76,9 @@ export function useAsset(id: string) {
       setIsLoading(true);
       setError(null);
       try {
-        if (marketplace) {
-          const result = await marketplace.get_asset({ asset_id: BigInt(id) });
-          if (!result) throw new Error("Asset not found");
-          
-          setData({
-            id: Number(result.id),
-            name: result.name.toString(),
-            description: result.description.toString(),
-            price: Number(result.price),
-            owner: result.owner,
-            assetType: "prompt", // Hardcoded fallback or map if contract returns it
-            licenseType: "MIT",
-            usageCount: 0,
-            tags: [],
-            version: result.version,
-            flagged: false,
-            listedAt: new Date().toISOString(),
-          } as Asset);
-        } else {
-          // Fallback if contract provider is not ready
-          const { fetchAsset } = await import("@/lib/api/assets");
-          const result = await fetchAsset(Number(id));
-          setData(result);
-        }
+        const { fetchAsset } = await import("@/lib/api/assets");
+        const result = await fetchAsset(Number(id));
+        setData(result);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch asset");
       } finally {

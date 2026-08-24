@@ -17,7 +17,7 @@
  * admin enters it in the UI (suitable for an internal operator tool).
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -98,6 +98,8 @@ export default function CompliancePage() {
   const [requests, setRequests] = useState<ComplianceRequest[]>([]);
   const [requestsMeta, setRequestsMeta] = useState<ListMeta | null>(null);
   const [requestsPage, setRequestsPage] = useState(1);
+  // Bumped after a submission to force the requests effect to refetch.
+  const [requestsReloadToken, setRequestsReloadToken] = useState(0);
 
   // Verify
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
@@ -107,12 +109,16 @@ export default function CompliancePage() {
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [auditMeta, setAuditMeta] = useState<ListMeta | null>(null);
   const [auditPage, setAuditPage] = useState(1);
+  // Bumped by the "Refresh" button to force the audit entries effect to refetch.
+  const [auditReloadToken, setAuditReloadToken] = useState(0);
 
   // Anchors
   const [anchors, setAnchors] = useState<AnchorRecord[]>([]);
   const [anchorMeta, setAnchorMeta] = useState<ListMeta | null>(null);
   const [anchorPage, setAnchorPage] = useState(1);
   const [anchoring, setAnchoring] = useState(false);
+  // Bumped after an on-demand anchor to force the anchors effect to refetch.
+  const [anchorsReloadToken, setAnchorsReloadToken] = useState(0);
 
   function adminHeaders(): HeadersInit {
     return { "Content-Type": "application/json", "x-admin-key": adminKey };
@@ -130,72 +136,84 @@ export default function CompliancePage() {
 
   // ── Load requests ────────────────────────────────────────────────────────────
 
-  const loadRequests = useCallback(async () => {
-    if (!adminKey) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch<{ data: ComplianceRequest[]; meta: ListMeta }>(
-        `/api/v1/admin/compliance/requests?page=${requestsPage}&limit=20`
-      );
-      setRequests(data.data);
-      setRequestsMeta(data.meta);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [adminKey, requestsPage]);
-
   useEffect(() => {
-    if (activeTab === "requests") loadRequests();
-  }, [activeTab, loadRequests]);
+    if (activeTab !== "requests" || !adminKey) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<{ data: ComplianceRequest[]; meta: ListMeta }>(
+          `/api/v1/admin/compliance/requests?page=${requestsPage}&limit=20`
+        );
+        if (cancelled) return;
+        setRequests(data.data);
+        setRequestsMeta(data.meta);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, adminKey, requestsPage, requestsReloadToken]);
 
   // ── Load audit entries ────────────────────────────────────────────────────────
 
-  const loadAuditEntries = useCallback(async () => {
-    if (!adminKey) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch<{ data: AuditEntry[]; meta: ListMeta }>(
-        `/api/v1/admin/audit/entries?page=${auditPage}&limit=50`
-      );
-      setAuditEntries(data.data);
-      setAuditMeta(data.meta);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [adminKey, auditPage]);
-
   useEffect(() => {
-    if (activeTab === "entries") loadAuditEntries();
-  }, [activeTab, loadAuditEntries]);
+    if (activeTab !== "entries" || !adminKey) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<{ data: AuditEntry[]; meta: ListMeta }>(
+          `/api/v1/admin/audit/entries?page=${auditPage}&limit=50`
+        );
+        if (cancelled) return;
+        setAuditEntries(data.data);
+        setAuditMeta(data.meta);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, adminKey, auditPage, auditReloadToken]);
 
   // ── Load anchors ──────────────────────────────────────────────────────────────
 
-  const loadAnchors = useCallback(async () => {
-    if (!adminKey) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch<{ data: AnchorRecord[]; meta: ListMeta }>(
-        `/api/v1/admin/audit/anchors?page=${anchorPage}&limit=20`
-      );
-      setAnchors(data.data);
-      setAnchorMeta(data.meta);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [adminKey, anchorPage]);
-
   useEffect(() => {
-    if (activeTab === "anchors") loadAnchors();
-  }, [activeTab, loadAnchors]);
+    if (activeTab !== "anchors" || !adminKey) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<{ data: AnchorRecord[]; meta: ListMeta }>(
+          `/api/v1/admin/audit/anchors?page=${anchorPage}&limit=20`
+        );
+        if (cancelled) return;
+        setAnchors(data.data);
+        setAnchorMeta(data.meta);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, adminKey, anchorPage, anchorsReloadToken]);
 
   // ── Submit export ─────────────────────────────────────────────────────────────
 
@@ -214,7 +232,7 @@ export default function CompliancePage() {
       );
       setSubmitMessage(data.message);
       setExportSubject("");
-      loadRequests();
+      setRequestsReloadToken((token) => token + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -244,7 +262,7 @@ export default function CompliancePage() {
       setSubmitMessage(data.message);
       setEraseSubject("");
       setEraseConfirmed(false);
-      loadRequests();
+      setRequestsReloadToken((token) => token + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -277,7 +295,7 @@ export default function CompliancePage() {
     setError(null);
     try {
       await apiFetch("/api/v1/admin/audit/anchor", { method: "POST" });
-      await loadAnchors();
+      setAnchorsReloadToken((token) => token + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -529,7 +547,10 @@ export default function CompliancePage() {
                   Request Queue
                   {requestsMeta && <span className="text-zinc-500 font-normal text-sm ml-2">({requestsMeta.total} total)</span>}
                 </h2>
-                <button onClick={loadRequests} className="text-xs text-purple-400 hover:text-purple-300">
+                <button
+                  onClick={() => setRequestsReloadToken((token) => token + 1)}
+                  className="text-xs text-purple-400 hover:text-purple-300"
+                >
                   Refresh
                 </button>
               </div>
@@ -668,7 +689,10 @@ export default function CompliancePage() {
                 Audit Log Entries
                 {auditMeta && <span className="text-zinc-500 font-normal text-sm ml-2">({auditMeta.total} total)</span>}
               </h2>
-              <button onClick={loadAuditEntries} className="text-xs text-purple-400 hover:text-purple-300">
+              <button
+                onClick={() => setAuditReloadToken((token) => token + 1)}
+                className="text-xs text-purple-400 hover:text-purple-300"
+              >
                 Refresh
               </button>
             </div>
@@ -731,7 +755,10 @@ export default function CompliancePage() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <button onClick={loadAnchors} className="text-xs text-purple-400 hover:text-purple-300">
+                <button
+                  onClick={() => setAnchorsReloadToken((token) => token + 1)}
+                  className="text-xs text-purple-400 hover:text-purple-300"
+                >
                   Refresh
                 </button>
                 <button
@@ -748,7 +775,7 @@ export default function CompliancePage() {
             {loading ? (
               <p className="text-zinc-500 text-sm">Loading…</p>
             ) : anchors.length === 0 ? (
-              <p className="text-zinc-500 text-sm">No anchors yet. Click "Anchor Now" to create one.</p>
+              <p className="text-zinc-500 text-sm">No anchors yet. Click &quot;Anchor Now&quot; to create one.</p>
             ) : (
               <div className="space-y-3">
                 {anchors.map((a) => (

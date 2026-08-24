@@ -297,6 +297,25 @@ describe("Agent Payment Protocol - Auction Routing", () => {
 });
 
 describe("Agent Payment Protocol - End-to-End SDK Flow", () => {
+  // This flow drives the SDK straight against the metering endpoint with no
+  // real seller service in the loop to attach signed attestations, so it
+  // exercises the pre-attestation "unmigrated seller" path documented in
+  // MeteringEngine.attestationEnforced() rather than the attestation-required
+  // path, which has its own dedicated coverage above.
+  const originalEnforced = process.env.ATTESTATION_ENFORCED;
+
+  beforeEach(() => {
+    process.env.ATTESTATION_ENFORCED = "false";
+  });
+
+  afterEach(() => {
+    if (originalEnforced === undefined) {
+      delete process.env.ATTESTATION_ENFORCED;
+    } else {
+      process.env.ATTESTATION_ENFORCED = originalEnforced;
+    }
+  });
+
   it("enables a full programmatic buy-and-use cycle", async () => {
     const buyerKeypair = Keypair.random();
     
