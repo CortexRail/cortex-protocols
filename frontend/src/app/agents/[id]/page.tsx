@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -49,53 +49,67 @@ export default function AgentProfilePage() {
   const [activeTab, setActiveTab] = useState<"overview" | "reputation" | "activity">("overview");
   const [voteScore, setVoteScore] = useState(50);
   const [loading, setLoading] = useState(true);
+  // Bumped after a vote submits so the reputation-history effect refetches
+  // without needing an externally-callable fetch function reachable from
+  // inside an effect (see useAssets' `mutate` for the same pattern).
+  const [reputationReloadToken, setReputationReloadToken] = useState(0);
 
-  const fetchAgent = useCallback(async () => {
-    try {
-      const res = await fetch(`http://localhost:4000/api/v1/agents/${agentId}`);
-      if (res.ok) {
-        setAgent(await res.json());
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`http://localhost:4000/api/v1/agents/${agentId}`);
+        if (res.ok && !cancelled) {
+          setAgent(await res.json());
+        }
+      } catch (err) {
+        console.error("Failed to fetch agent:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (err) {
-      console.error("Failed to fetch agent:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId]);
-
-  const fetchReputationHistory = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `http://localhost:4000/api/v1/agents/${agentId}/reputation-history?limit=30`
-      );
-      if (res.ok) {
-        const data: ReputationHistoryResponse = await res.json();
-        setReputationHistory(data.data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch reputation history:", err);
-    }
-  }, [agentId]);
-
-  const fetchActivity = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `http://localhost:4000/api/v1/agents/${agentId}/activity?limit=20`
-      );
-      if (res.ok) {
-        const data: ActivityFeedResponse = await res.json();
-        setActivity(data.data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch activity:", err);
-    }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [agentId]);
 
   useEffect(() => {
-    fetchAgent();
-    fetchReputationHistory();
-    fetchActivity();
-  }, [fetchAgent, fetchReputationHistory, fetchActivity]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`http://localhost:4000/api/v1/agents/${agentId}/activity?limit=20`);
+        if (res.ok && !cancelled) {
+          const data: ActivityFeedResponse = await res.json();
+          setActivity(data.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch activity:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `http://localhost:4000/api/v1/agents/${agentId}/reputation-history?limit=30`
+        );
+        if (res.ok && !cancelled) {
+          const data: ReputationHistoryResponse = await res.json();
+          setReputationHistory(data.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch reputation history:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, reputationReloadToken]);
 
   async function submitVote() {
     try {
@@ -109,7 +123,7 @@ export default function AgentProfilePage() {
       });
       if (res.ok) {
         alert("Vote submitted!");
-        fetchReputationHistory();
+        setReputationReloadToken((token) => token + 1);
       }
     } catch (err) {
       console.error("Failed to submit vote:", err);

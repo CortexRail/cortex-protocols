@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 
 interface Agent {
@@ -36,26 +36,28 @@ export default function LeaderboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchLeaderboard = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `http://localhost:4000/api/v1/agents/leaderboard?sortBy=${activeTab}&limit=20`
-      );
-      if (res.ok) {
-        const data: LeaderboardResponse = await res.json();
-        setAgents(data.data || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch leaderboard:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeTab]);
-
   useEffect(() => {
-    fetchLeaderboard();
-  }, [fetchLeaderboard]);
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `http://localhost:4000/api/v1/agents/leaderboard?sortBy=${activeTab}&limit=20`
+        );
+        if (res.ok && !cancelled) {
+          const data: LeaderboardResponse = await res.json();
+          setAgents(data.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch leaderboard:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
 
   function getMetricValue(agent: Agent, tab: string) {
     if (tab === "reputation") return `${Math.round(agent.reputation / 100)}%`;

@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext } from 'react';
+import React, { createContext } from 'react';
 
 const NotificationContext = createContext({});
 

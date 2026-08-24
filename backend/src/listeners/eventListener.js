@@ -7,7 +7,6 @@
  * ledger recorded in the audit log — no events are silently skipped.
  */
 
-const { logger } = require("../utils/logger");
 const { rpcServer, CONTRACT_IDS } = require("../config/stellar");
 const { scValToNative } = require("@stellar/stellar-sdk");
 const {
@@ -59,7 +58,7 @@ async function pollEvents() {
     pollErrorCount += 1;
     // Log but don't crash — network may be temporarily unavailable
     if (process.env.NODE_ENV !== "test") {
-      logger.warn("[eventListener] poll error:", err.message);
+      console.warn("[eventListener] poll error:", err.message);
     }
   }
 }
@@ -99,14 +98,14 @@ async function processEvent(event) {
     case "UPDATED": {
       const update = parseUpdatedEvent(event.value);
       if (!update) {
-        logger.warn("[eventListener] malformed UPDATED event; skipping");
+        console.warn("[eventListener] malformed UPDATED event; skipping");
         break;
       }
 
       const { assetId, oldVersion, newVersion } = update;
       const asset = await updateAssetVersion(assetId, newVersion);
       if (!asset) {
-        logger.warn(
+        console.warn(
           `[eventListener] asset update skipped; not indexed: id=${assetId}, oldVersion=${oldVersion}, newVersion=${newVersion}`
         );
         break;

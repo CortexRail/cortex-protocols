@@ -228,8 +228,8 @@ router.get(
   publicReadLimiter,
   [param("id").isInt({ min: 1 }), query("limit").optional().isInt({ min: 1, max: 100 })],
   validate,
-  (req, res) => {
-    const agent = getAgent(req.params.id);
+  asyncHandler(async (req, res) => {
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return res.status(404).json({ error: "Agent not found" });
     }
@@ -239,7 +239,7 @@ router.get(
       data: history,
       meta: { agentId: req.params.id, count: history.length },
     });
-  }
+  })
 );
 
 /**
@@ -278,14 +278,14 @@ router.post(
     body("voter").isString().isLength({ min: 56, max: 56 }),
   ],
   validate,
-  (req, res) => {
-    const agent = getAgent(req.params.id);
+  asyncHandler(async (req, res) => {
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return res.status(404).json({ error: "Agent not found" });
     }
-    const vote = submitReputation(req.params.id, req.body.score, req.body.voter);
+    const vote = await submitReputation(req.params.id, req.body.score, req.body.voter);
     res.status(201).json(vote);
-  }
+  })
 );
 
 /**
@@ -321,8 +321,8 @@ router.get(
     query("limit").optional().isInt({ min: 1, max: 100 }),
   ],
   validate,
-  (req, res) => {
-    const agent = getAgent(req.params.id);
+  asyncHandler(async (req, res) => {
+    const agent = await getAgent(req.params.id);
     if (!agent) {
       return res.status(404).json({ error: "Agent not found" });
     }
@@ -330,7 +330,7 @@ router.get(
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const feed = getActivityFeed(req.params.id, page, limit);
     res.json(feed);
-  }
+  })
 );
 
 module.exports = router;
