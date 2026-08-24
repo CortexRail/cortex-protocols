@@ -64,7 +64,7 @@ async function applyMigrations(pool) {
 
 // Override the db/connection module to point at the test container.
 function patchDbConnection(pool) {
-  const connection = require("../../../db/connection");
+  const connection = require("../../db/connection");
   connection._testPool = pool;
 
   const origQuery = connection.query;

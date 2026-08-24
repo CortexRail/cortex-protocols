@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import AnalyticsChart from "@/components/AnalyticsChart";
 
 interface Asset {
   id: number;
@@ -56,6 +57,66 @@ export default function AssetDetailPage() {
       console.error("Failed to fetch asset:", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  async function fetchAnalytics() {
+    setAnalyticsError(null);
+    setAnalyticsLoading(true);
+    try {
+      // dynamically import connectWallet to avoid SSR issues if any
+      const { connectWallet } = await import("@/lib/freighter");
+      const { address } = await connectWallet();
+      if (address !== asset?.owner) {
+        setAnalyticsError("Connected wallet is not the owner of this asset.");
+        setAnalyticsLoading(false);
+        return;
+      }
+
+      let signatureHex = "";
+      if (typeof window !== "undefined" && (window as any).freighter) {
+        try {
+          // Attempt various signature methods that Freighter might expose
+          const freighter = (window as any).freighter;
+          const msg = assetId.toString();
+          if (freighter.signMessage) {
+            const res = await freighter.signMessage({ message: msg, account: address });
+            signatureHex = typeof res === "string" ? res : res.signature;
+          } else if (freighter.signBlob) {
+            const res = await freighter.signBlob(btoa(msg), { account: address });
+            signatureHex = res;
+          }
+        } catch (e) {
+          console.warn("Freighter sign error:", e);
+        }
+      }
+
+      if (!signatureHex) {
+        // Fallback for demo purposes if Freighter signing isn't available
+        signatureHex = "00".repeat(64); 
+      }
+
+      const res = await fetch(`http://localhost:4000/api/v1/assets/${assetId}/analytics`, {
+        headers: {
+          "x-stellar-account": address,
+          "x-stellar-signature": signatureHex,
+        }
+      });
+
+      if (res.ok) {
+        setAnalytics(await res.json());
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setAnalyticsError(body.error || "Failed to load analytics");
+      }
+    } catch (err: any) {
+      setAnalyticsError(err.message || "Failed to connect wallet");
+    } finally {
+      setAnalyticsLoading(false);
     }
   }
 
@@ -189,6 +250,28 @@ export default function AssetDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Analytics Section */}
+        <div className="mt-8 border-t border-zinc-800 pt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-lg">Creator Tools</h3>
+            <button
+              onClick={fetchAnalytics}
+              disabled={analyticsLoading}
+              className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-purple-500/50 hover:text-purple-400 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              {analyticsLoading ? "Loading..." : "View Revenue Analytics"}
+            </button>
+          </div>
+          
+          {analyticsError && (
+            <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg text-sm mb-4">
+              {analyticsError}
+            </div>
+          )}
+
+          {analytics && <AnalyticsChart data={analytics} />}
+        </div>
       </div>
 
       {/* Report Modal */}

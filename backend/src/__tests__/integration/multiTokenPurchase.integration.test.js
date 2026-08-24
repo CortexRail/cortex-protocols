@@ -18,7 +18,10 @@ const {
   OWNER_A,
 } = require("../helpers/testDb");
 
-const USDC_ADDRESS = "GBUSDUSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDSDS";
+// Real, checksum-valid Ed25519 public keys (generated via Keypair.random()) —
+// route validation checks the StrKey checksum, so placeholder-looking
+// strings of the right length are not sufficient here.
+const USDC_ADDRESS = "GBESQQKUX6FICTI7CZHM5UDQNX3PYH4BFC4AWG26V7UJMMWBOWEKGHME";
 
 let asset;
 
@@ -61,7 +64,7 @@ describe("Multi-Token Purchase Flow", () => {
     });
 
     it("rejects price for non-accepted token", async () => {
-      const badToken = "GBADTOKENSGBADTOKENSGBADTOKENSGBADTOKENSGBADTOKENSGBADTOKEN";
+      const badToken = "GC74ELXUP2FSIXLC746T55RRSZF5UBTMWG7CODMHFGUISVFR7ABWOTAZ";
       const res = await request(app)
         .get(`/api/v1/assets/${asset.id}/price?token=${badToken}`)
         .expect(400);

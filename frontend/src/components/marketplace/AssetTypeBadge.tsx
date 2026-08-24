@@ -1,8 +1,7 @@
 import { getAssetTypeIcon } from "@/lib/formatters";
-import { AssetType } from "@/lib/api/assets";
 
 interface AssetTypeBadgeProps {
-  type: AssetType;
+  type: string;
   variant?: "sm" | "md";
 }
 

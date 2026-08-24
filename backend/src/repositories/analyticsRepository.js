@@ -37,4 +37,32 @@ async function getRevenueByOwner(owner, client) {
   }));
 }
 
-module.exports = { getRevenueByOwner };
+/**
+ * Revenue for one asset, broken down by license type. There is no separate
+ * "bundle"/tier concept in this system — a license's type (Perpetual,
+ * UsageBased, Subscription, OpenSource) is the only revenue segmentation
+ * that actually exists in the schema.
+ */
+async function getRevenueByAssetLicenseType(assetId, client) {
+  const { rows } = await run(
+    `SELECT
+       license_type                            AS license_type,
+       COUNT(*)::int                           AS license_count,
+       COALESCE(SUM(price_paid), 0)::bigint    AS revenue
+     FROM licenses
+     WHERE asset_id = $1
+     GROUP BY license_type
+     ORDER BY revenue DESC`,
+    [assetId],
+    client,
+    "read"
+  );
+
+  return rows.map((row) => ({
+    licenseType: row.license_type,
+    licenseCount: row.license_count,
+    revenue: row.revenue,
+  }));
+}
+
+module.exports = { getRevenueByOwner, getRevenueByAssetLicenseType };

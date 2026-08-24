@@ -223,11 +223,14 @@ describe("fraud_signals audit trail", () => {
     // audit trail. Assets are only ever soft-deleted in this system, so this
     // guards against a future hard delete silently destroying evidence.
     //
-    // 23001 (restrict_violation), not 23503: RESTRICT is checked immediately,
-    // while 23503 is what a NO ACTION constraint raises at statement end.
+    // 23503 (foreign_key_violation): on the Postgres version this project
+    // actually runs (16, per src/__tests__/globalSetup.js's postgres:16-alpine
+    // container), RESTRICT and the default NO ACTION both raise 23503 — PG
+    // does not give RESTRICT its own 23001 (restrict_violation) code until a
+    // later major version.
     await expect(
       query("DELETE FROM assets WHERE id = $1", [asset.id])
-    ).rejects.toMatchObject({ code: "23001" });
+    ).rejects.toMatchObject({ code: "23503" });
 
     const survivors = await fraudSignalRepository.findAll({}, { page: 1, limit: 10 });
     expect(survivors.meta.total).toBe(1);

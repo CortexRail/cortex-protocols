@@ -58,6 +58,24 @@ app.get("/health", (_req, res) => {
 });
 app.use("/health", healthRouter);
 
+// ── Swagger Docs ──────────────────────────────────────────────────────────────
+const swaggerJsdoc = require("swagger-jsdoc");
+const swaggerUi = require("swagger-ui-express");
+
+const swaggerOptions = {
+  definition: {
+    openapi: "3.0.0",
+    info: {
+      title: "Cortex Protocol API",
+      version: "0.1.0",
+      description: "Intelligence Rail backend API",
+    },
+  },
+  apis: ["./src/routes/*.js"],
+};
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 const approvalRoutes = require("./routes/approvalRoutes");
 
 // ── Routes ────────────────────────────────────────────────────────────────────

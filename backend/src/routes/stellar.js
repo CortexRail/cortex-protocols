@@ -46,8 +46,20 @@ const txRateLimiter = rateLimit({
 });
 
 /**
- * GET /api/v1/stellar/account/:publicKey
- * Fetch account balances from Horizon.
+ * @swagger
+ * /api/v1/stellar/account/{publicKey}:
+ *   get:
+ *     summary: Fetch account balances from Horizon.
+ *     tags: [Stellar]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Account details
  */
 router.get(
   "/account/:publicKey",
@@ -78,8 +90,14 @@ router.get(
 );
 
 /**
- * GET /api/v1/stellar/network
- * Return current network config and contract addresses.
+ * @swagger
+ * /api/v1/stellar/network:
+ *   get:
+ *     summary: Return current network config and contract addresses.
+ *     tags: [Stellar]
+ *     responses:
+ *       200:
+ *         description: Network config
  */
 router.get("/network", (_req, res) => {
   res.json({
@@ -91,8 +109,14 @@ router.get("/network", (_req, res) => {
 });
 
 /**
- * GET /api/v1/stellar/fee
- * Fetch current recommended fee from Horizon.
+ * @swagger
+ * /api/v1/stellar/fee:
+ *   get:
+ *     summary: Fetch current recommended fee from Horizon.
+ *     tags: [Stellar]
+ *     responses:
+ *       200:
+ *         description: Fee stats
  */
 router.get("/fee", async (_req, res, next) => {
   try {
@@ -109,19 +133,32 @@ router.get("/fee", async (_req, res, next) => {
 });
 
 /**
- * GET /api/v1/stellar/account/:publicKey/transactions
- *
- * Returns a paginated list of Horizon transactions for the given public key,
- * filtered to those involving known contract addresses, with each operation
- * parsed into a human-readable summary.
- *
- * Query params:
- *   page    — 1-based page number (default: 1)
- *   limit   — records per page, 1–200 (default: 20)
- *   cursor  — Horizon paging token; when supplied, overrides `page`
- *
- * Caching: results are cached for 5 seconds per (publicKey × page × limit × cursor).
- * Rate limiting: 30 requests per 60-second window per public key.
+ * @swagger
+ * /api/v1/stellar/account/{publicKey}/transactions:
+ *   get:
+ *     summary: Returns a paginated list of Horizon transactions for the given public key
+ *     tags: [Stellar]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Transactions list
  */
 router.get(
   "/account/:publicKey/transactions",
@@ -169,16 +206,46 @@ const listingBodyRules = [
   body("assetType").isIn(ASSET_TYPES),
   body("licenseType").isIn(LICENSE_TYPES),
   body("price").isInt({ min: 1 }), // stroops; must be > 0 (InvalidPrice)
+  body("tags").isArray({ max: 10 }).optional(),
+  body("tags.*").isString().trim().isLength({ min: 1, max: 30 }),
 ];
 
 /**
- * POST /api/v1/stellar/list-asset/build
- * Build & simulate an unsigned `list_asset` transaction for the frontend to
- * sign with Freighter. Contract rejections (e.g. InvalidPrice) surface here.
+ * @swagger
+ * /api/v1/stellar/list-asset/build:
+ *   post:
+ *     summary: Build & simulate an unsigned list_asset transaction for the frontend to sign with Freighter.
+ *     tags: [Stellar]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               owner:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               assetType:
+ *                 type: string
+ *               licenseType:
+ *                 type: string
+ *               price:
+ *                 type: integer
+ *               tags:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Transaction built
  */
 router.post("/list-asset/build", listingBodyRules, validate, async (req, res, next) => {
   try {
-    const { owner, name, description, assetType, licenseType, price } = req.body;
+    const { owner, name, description, assetType, licenseType, price, tags = [] } = req.body;
     const result = await buildListAssetTx({
       owner,
       name: name.trim(),
@@ -186,6 +253,7 @@ router.post("/list-asset/build", listingBodyRules, validate, async (req, res, ne
       assetType,
       licenseType,
       price: String(price),
+      tags,
     });
     res.json(result);
   } catch (err) {
@@ -201,9 +269,39 @@ router.post("/list-asset/build", listingBodyRules, validate, async (req, res, ne
 });
 
 /**
- * POST /api/v1/stellar/list-asset/submit
- * Submit the Freighter-signed transaction, wait for confirmation, index the
- * new asset, and return its on-chain id so the client can redirect.
+ * @swagger
+ * /api/v1/stellar/list-asset/submit:
+ *   post:
+ *     summary: Submit the Freighter-signed transaction
+ *     tags: [Stellar]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               signedXdr:
+ *                 type: string
+ *               owner:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               assetType:
+ *                 type: string
+ *               licenseType:
+ *                 type: string
+ *               price:
+ *                 type: integer
+ *               tags:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       201:
+ *         description: Transaction submitted
  */
 router.post(
   "/list-asset/submit",
@@ -211,7 +309,7 @@ router.post(
   validate,
   async (req, res, next) => {
     try {
-      const { signedXdr, owner, name, description, assetType, licenseType, price } = req.body;
+      const { signedXdr, owner, name, description, assetType, licenseType, price, tags = [] } = req.body;
       const { hash, assetId } = await submitSignedTx(signedXdr);
 
       let asset = null;
@@ -224,6 +322,7 @@ router.post(
           assetType,
           licenseType,
           price: Number(price),
+          tags,
         });
       }
 
@@ -240,9 +339,23 @@ router.post(
 );
 
 /**
- * POST /api/v1/stellar/fund
- * Fund a Testnet account via Stellar Friendbot. Testnet only — Mainnet
- * deployments reject with 403. Rate limited to 1 request per IP per hour.
+ * @swagger
+ * /api/v1/stellar/fund:
+ *   post:
+ *     summary: Fund a Testnet account via Stellar Friendbot.
+ *     tags: [Stellar]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Account funded
  */
 router.post("/fund", fundRateLimiter, async (req, res) => {
   try {

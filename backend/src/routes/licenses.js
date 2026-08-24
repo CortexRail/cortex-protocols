@@ -1,8 +1,10 @@
 const { Router } = require("express");
-const { query } = require("express-validator");
+const { query, param, body } = require("express-validator");
 const validate = require("../middleware/validate");
 const asyncHandler = require("../middleware/asyncHandler");
-const { listLicensesForBuyer } = require("../services/licenseService");
+const { listLicensesForBuyer, topUpLicense } = require("../services/licenseService");
+const { isValidStellarAddress } = require("../utils/stellar");
+const { writeLimiter } = require("../middleware/rateLimiter");
 
 const router = Router();
 
@@ -25,6 +27,33 @@ router.get(
       limit: limit ? Number(limit) : 50,
     });
     res.json(result);
+  })
+);
+
+/**
+ * POST /api/v1/licenses/:id/topup
+ * Buy additional calls for an existing usage-based license.
+ */
+router.post(
+  "/:id/topup",
+  writeLimiter,
+  [
+    param("id").isInt({ min: 1 }),
+    body("buyer")
+      .isString()
+      .bail()
+      .custom(isValidStellarAddress)
+      .withMessage("must be a valid Stellar public key"),
+    body("calls").isInt({ min: 1 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await topUpLicense({
+      licenseId: Number(req.params.id),
+      buyer: req.body.buyer,
+      calls: Number(req.body.calls),
+    });
+    res.status(201).json(result);
   })
 );
 
