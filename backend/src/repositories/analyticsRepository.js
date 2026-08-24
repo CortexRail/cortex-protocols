@@ -37,4 +37,47 @@ async function getRevenueByOwner(owner, client) {
   }));
 }
 
-module.exports = { getRevenueByOwner };
+module.exports = { getRevenueByOwner, getAssetAnalytics };
+
+/**
+ * Returns total revenue, purchase count, unique buyer count, and daily revenue over time
+ * for a specific asset based on indexed purchase events (licenses).
+ */
+async function getAssetAnalytics(assetId, client) {
+  // Aggregate totals
+  const { rows: totals } = await run(
+    `SELECT 
+       COUNT(id)::int AS purchase_count,
+       COUNT(DISTINCT buyer)::int AS unique_buyer_count,
+       COALESCE(SUM(price_paid), 0)::bigint AS total_revenue
+     FROM licenses
+     WHERE asset_id = $1 AND is_active`,
+    [assetId],
+    client,
+    "read"
+  );
+
+  // Daily buckets
+  const { rows: daily } = await run(
+    `SELECT 
+       DATE_TRUNC('day', purchased_at) AS day,
+       COALESCE(SUM(price_paid), 0)::bigint AS revenue
+     FROM licenses
+     WHERE asset_id = $1 AND is_active
+     GROUP BY day
+     ORDER BY day ASC`,
+    [assetId],
+    client,
+    "read"
+  );
+
+  return {
+    totalRevenue: Number(totals[0].total_revenue),
+    purchaseCount: Number(totals[0].purchase_count),
+    uniqueBuyerCount: Number(totals[0].unique_buyer_count),
+    revenueOverTime: daily.map(r => ({
+      date: r.day.toISOString().split('T')[0],
+      revenue: Number(r.revenue)
+    }))
+  };
+}

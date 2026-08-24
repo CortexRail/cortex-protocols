@@ -133,6 +133,51 @@ router.get(
     res.json(asset);
   })
 );
+/**
+ * GET /api/v1/assets/:id/analytics
+ * Returns total revenue, purchase count, unique buyer count, and revenue over time.
+ * Secure with owner-only auth.
+ */
+router.get(
+  "/:id/analytics",
+  publicReadLimiter,
+  [param("id").isInt({ min: 1 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const asset = await getAsset(req.params.id);
+    if (!asset) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+
+    const signatureHex = req.header("x-stellar-signature");
+    const account = req.header("x-stellar-account");
+
+    if (!signatureHex || !account) {
+      return res.status(401).json({ error: "Missing signature or account headers" });
+    }
+
+    if (account !== asset.owner) {
+      return res.status(403).json({ error: "Not the asset owner" });
+    }
+
+    const { Keypair } = require("@stellar/stellar-sdk");
+    try {
+      const kp = Keypair.fromPublicKey(account);
+      // We expect the signed message to be the stringified asset id
+      const message = Buffer.from(req.params.id.toString());
+      const signature = Buffer.from(signatureHex, "hex");
+      if (!kp.verify(message, signature)) {
+        return res.status(403).json({ error: "Invalid signature" });
+      }
+    } catch (err) {
+      return res.status(401).json({ error: "Invalid signature format" });
+    }
+
+    const { getAssetAnalytics } = require("../repositories/analyticsRepository");
+    const data = await getAssetAnalytics(asset.id);
+    res.json(data);
+  })
+);
 
 /**
  * POST /api/v1/assets
