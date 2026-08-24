@@ -60,7 +60,10 @@ export default function AssetDetailPage() {
     }
   }
 
-  const [analytics, setAnalytics] = useState<any>(null);
+  interface Analytics {
+    [key: string]: unknown;
+  }
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
