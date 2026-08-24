@@ -3,7 +3,7 @@ import { Asset } from "@/lib/api/assets";
 import { AssetTypeBadge } from "./AssetTypeBadge";
 import { LicenseBadge } from "./LicenseBadge";
 import { PriceDisplay } from "./PriceDisplay";
-import { truncateText, formatCompactNumber, getReputationColor, getReputationBg } from "@/lib/formatters";
+import { truncateText, truncateAddress, formatCompactNumber } from "@/lib/formatters";
 
 interface AssetCardProps {
   asset: Asset;
@@ -15,7 +15,7 @@ export function AssetCard({ asset }: AssetCardProps) {
       <div className="group h-full p-5 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-purple-500 transition-colors cursor-pointer">
         {/* Header with type and license */}
         <div className="flex items-start justify-between mb-3 gap-2">
-          <AssetTypeBadge type={asset.type} variant="sm" />
+          <AssetTypeBadge type={asset.assetType} variant="sm" />
           <LicenseBadge type={asset.licenseType} />
         </div>
 
@@ -31,14 +31,9 @@ export function AssetCard({ asset }: AssetCardProps) {
 
         {/* Owner and stats */}
         <div className="mb-4 pb-4 border-t border-zinc-800">
-          <div className="flex items-center justify-between mt-3">
-            <div>
-              <p className="text-xs text-zinc-500 mb-1">Owner</p>
-              <p className="text-sm font-semibold text-zinc-300">{asset.owner.name}</p>
-            </div>
-            <div className={`text-xs font-semibold px-2 py-1 rounded ${getReputationBg(asset.owner.reputation)} ${getReputationColor(asset.owner.reputation)}`}>
-              {Math.round(asset.owner.reputation)}%
-            </div>
+          <div className="mt-3">
+            <p className="text-xs text-zinc-500 mb-1">Owner</p>
+            <p className="text-sm font-mono font-semibold text-zinc-300">{truncateAddress(asset.owner)}</p>
           </div>
         </div>
 
@@ -50,7 +45,7 @@ export function AssetCard({ asset }: AssetCardProps) {
               {formatCompactNumber(asset.usageCount)} times
             </p>
           </div>
-          <PriceDisplay priceInStroops={asset.priceInStroops} showLabel={false} />
+          <PriceDisplay priceInStroops={asset.price} showLabel={false} />
         </div>
       </div>
     </Link>

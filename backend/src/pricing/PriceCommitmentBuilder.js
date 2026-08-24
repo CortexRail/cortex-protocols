@@ -6,7 +6,7 @@
  */
 
 const crypto = require("crypto");
-const logger = require("../middleware/logger");
+const { logger } = require("../utils/logger");
 
 const COMMITMENT_VERSION = 1;
 const COMMITMENT_VALIDITY_SECONDS = 60; // Valid for 60 seconds

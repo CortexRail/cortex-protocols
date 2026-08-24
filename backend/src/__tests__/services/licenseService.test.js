@@ -20,9 +20,14 @@ jest.mock("../../repositories/contractStateRepository", () => ({
   isPaused: jest.fn(),
 }));
 
+jest.mock("../../services/approvalWorkflowService", () => ({
+  getPolicy: jest.fn(),
+}));
+
 const assetRepository = require("../../repositories/assetRepository");
 const licenseRepository = require("../../repositories/licenseRepository");
 const contractStateRepository = require("../../repositories/contractStateRepository");
+const approvalWorkflowService = require("../../services/approvalWorkflowService");
 const { purchaseLicense } = require("../../services/licenseService");
 
 const ASSET = {
@@ -36,6 +41,7 @@ describe("licenseService asset version selection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     contractStateRepository.isPaused.mockResolvedValue(false);
+    approvalWorkflowService.getPolicy.mockResolvedValue(null);
     assetRepository.findById.mockResolvedValue(ASSET);
     assetRepository.incrementUsage.mockResolvedValue(12);
     licenseRepository.create.mockImplementation(async (license) => ({

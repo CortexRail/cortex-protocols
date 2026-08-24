@@ -5,7 +5,7 @@
  * and tracks source health over time.
  */
 
-const logger = require("../middleware/logger");
+const { logger } = require("../utils/logger");
 
 const DEFAULT_MAX_AGE = 300000; // 5 minutes in ms
 const STALE_THRESHOLD = 180000; // 3 minutes before considering stale
@@ -105,6 +105,7 @@ class StalenessGuard {
         freshCount: 0,
         staleCount: 0,
         failureRate: 0,
+        avgAge: 0,
       };
     }
 

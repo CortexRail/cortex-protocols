@@ -13,6 +13,7 @@ const {
 const assetRepository = require("../repositories/assetRepository");
 const { purchaseLicense } = require("../services/licenseService");
 const { fileReport, REPORT_REASONS } = require("../services/reportService");
+const assetAnalyticsService = require("../services/assetAnalyticsService");
 const { isValidStellarAddress } = require("../utils/stellar");
 const { publicReadLimiter, writeLimiter } = require("../middleware/rateLimiter");
 
@@ -295,6 +296,98 @@ router.get(
       token: req.query.token,
     });
     res.json(commitment);
+  })
+);
+
+/**
+ * GET /api/v1/assets/:id/usage
+ * Calls-and-revenue time series for the owner's analytics dashboard.
+ * Defaults to the last 7 days, bucketed daily.
+ */
+router.get(
+  "/:id/usage",
+  publicReadLimiter,
+  [
+    param("id").isInt({ min: 1 }),
+    query("owner").isString().isLength({ min: 56, max: 56 }),
+    query("from").optional().isInt({ min: 0 }),
+    query("to").optional().isInt({ min: 0 }),
+    query("bucketSeconds").optional().isInt({ min: 60 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await assetAnalyticsService.getUsageSeries({
+      assetId: Number(req.params.id),
+      owner: req.query.owner,
+      from: req.query.from !== undefined ? Number(req.query.from) : undefined,
+      to: req.query.to !== undefined ? Number(req.query.to) : undefined,
+      bucketSeconds: req.query.bucketSeconds !== undefined ? Number(req.query.bucketSeconds) : undefined,
+    });
+    res.json(result);
+  })
+);
+
+/**
+ * GET /api/v1/assets/:id/top-callers
+ * Busiest callers for the asset in a window, most calls first.
+ * Defaults to the last 30 days.
+ */
+router.get(
+  "/:id/top-callers",
+  publicReadLimiter,
+  [
+    param("id").isInt({ min: 1 }),
+    query("owner").isString().isLength({ min: 56, max: 56 }),
+    query("from").optional().isInt({ min: 0 }),
+    query("to").optional().isInt({ min: 0 }),
+    query("limit").optional().isInt({ min: 1, max: 50 }),
+  ],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await assetAnalyticsService.getTopCallers({
+      assetId: Number(req.params.id),
+      owner: req.query.owner,
+      from: req.query.from !== undefined ? Number(req.query.from) : undefined,
+      to: req.query.to !== undefined ? Number(req.query.to) : undefined,
+      limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
+    });
+    res.json(result);
+  })
+);
+
+/**
+ * GET /api/v1/assets/:id/revenue-breakdown
+ * Revenue for the asset broken down by license type.
+ */
+router.get(
+  "/:id/revenue-breakdown",
+  publicReadLimiter,
+  [param("id").isInt({ min: 1 }), query("owner").isString().isLength({ min: 56, max: 56 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await assetAnalyticsService.getRevenueBreakdown({
+      assetId: Number(req.params.id),
+      owner: req.query.owner,
+    });
+    res.json(result);
+  })
+);
+
+/**
+ * GET /api/v1/assets/:id/remaining-calls
+ * Aggregate remaining-call runway across active usage-based licenses.
+ */
+router.get(
+  "/:id/remaining-calls",
+  publicReadLimiter,
+  [param("id").isInt({ min: 1 }), query("owner").isString().isLength({ min: 56, max: 56 })],
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await assetAnalyticsService.getRemainingCalls({
+      assetId: Number(req.params.id),
+      owner: req.query.owner,
+    });
+    res.json(result);
   })
 );
 
