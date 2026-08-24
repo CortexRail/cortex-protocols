@@ -8,35 +8,15 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+arbitrary = { version = "1.3", features = ["derive"] }
 libfuzzer-sys = "0.4"
-marketplace = { path = "../contracts/marketplace" }
-micropayments = { path = "../contracts/micropayments" }
-soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+
+[lib]
+path = "invariants/mod.rs"
 
 [[bin]]
-name = "list_asset"
-path = "fuzz_targets/list_asset.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "purchase_license"
-path = "fuzz_targets/purchase_license.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "publish_update"
-path = "fuzz_targets/publish_update.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "open_stream"
-path = "fuzz_targets/open_stream.rs"
+name = "stateful_sequence"
+path = "fuzz_targets/stateful_sequence.rs"
 test = false
 doc = false
 bench = false
