@@ -50,8 +50,8 @@ export default function CreateAssetPage() {
     }));
   };
 
-  const canProceedStep1 = form.name && form.description;
-  const canProceedStep2 = form.type && form.licenseType && form.priceInStroops > 0;
+  const canProceedStep1 = Boolean(form.name && form.description);
+  const canProceedStep2 = Boolean(form.type && form.licenseType && form.priceInStroops > 0);
   const canProceedStep3 = true;
   const canProceedStep4 = canProceedStep1 && canProceedStep2;
 
@@ -75,7 +75,7 @@ export default function CreateAssetPage() {
       if (!response.ok) throw new Error("Failed to create asset");
       const data = await response.json();
       window.location.href = `/marketplace/${data.id}`;
-    } catch (err) {
+    } catch {
       alert("Failed to publish asset. Please try again.");
     }
   };

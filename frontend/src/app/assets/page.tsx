@@ -2,91 +2,100 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import AssetCard from "@/components/marketplace/AssetCard";
+import { AssetCard } from "@/components/marketplace/AssetCard";
+import type { Asset } from "@/types/marketplace";
 
-interface Asset {
-  id: string;
-  name: string;
-  type: string;
-  price: number;
-  description: string;
-  version: number;
-  isActive: boolean;
+const OWNER_PLACEHOLDER = "GDPLACEHOLDER00000000000000000000000000000000000000000";
+
+function placeholderAsset(overrides: Pick<Asset, "id" | "name" | "assetType" | "price" | "description" | "version" | "isActive">): Asset {
+  const now = Date.now();
+  return {
+    owner: OWNER_PLACEHOLDER,
+    licenseType: "Perpetual",
+    availableVersions: [overrides.version],
+    usageCount: 0,
+    tags: [],
+    createdAt: now,
+    indexedAt: now,
+    updatedAt: now,
+    deletedAt: null,
+    ...overrides,
+  };
 }
 
 const placeholderAssets: Asset[] = [
-  {
-    id: "1",
+  placeholderAsset({
+    id: 1,
     name: "Sentiment Analysis Engine",
-    type: "Model",
+    assetType: "ModelInstruction",
     price: 5000000,
     description: "Advanced NLP model for real-time sentiment analysis across multiple languages and domains.",
     version: 2,
     isActive: true,
-  },
-  {
-    id: "2",
+  }),
+  placeholderAsset({
+    id: 2,
     name: "Data Extraction Pipeline",
-    type: "Workflow",
+    assetType: "Workflow",
     price: 3500000,
     description: "Automated pipeline for extracting structured data from unstructured documents and web sources.",
     version: 1,
     isActive: true,
-  },
-  {
-    id: "3",
+  }),
+  placeholderAsset({
+    id: 3,
     name: "Threat Detection System",
-    type: "Tool",
+    assetType: "Tool",
     price: 7500000,
     description: "Real-time threat detection and classification system for cybersecurity applications.",
     version: 3,
     isActive: true,
-  },
-  {
-    id: "4",
+  }),
+  placeholderAsset({
+    id: 4,
     name: "Knowledge Graph Builder",
-    type: "Tool",
+    assetType: "Tool",
     price: 4200000,
     description: "Construct and maintain knowledge graphs from heterogeneous data sources with entity linking.",
     version: 1,
     isActive: true,
-  },
-  {
-    id: "5",
+  }),
+  placeholderAsset({
+    id: 5,
     name: "Forecasting Model",
-    type: "Model",
+    assetType: "ModelInstruction",
     price: 6000000,
     description: "Time-series forecasting model for predicting trends and anomalies in financial and operational data.",
     version: 2,
     isActive: false,
-  },
-  {
-    id: "6",
+  }),
+  placeholderAsset({
+    id: 6,
     name: "Document Summarizer",
-    type: "Model",
+    assetType: "ModelInstruction",
     price: 2800000,
     description: "AI-powered document summarization with customizable length and focus areas.",
     version: 1,
     isActive: true,
-  },
-  {
-    id: "7",
+  }),
+  placeholderAsset({
+    id: 7,
     name: "Anomaly Detector",
-    type: "Tool",
+    assetType: "Tool",
     price: 4500000,
     description: "Statistical and ML-based anomaly detection for monitoring system behavior and data quality.",
     version: 2,
     isActive: true,
-  },
-  {
-    id: "8",
+  }),
+  placeholderAsset({
+    id: 8,
     name: "Classification Framework",
-    type: "Workflow",
+    assetType: "Workflow",
     price: 3900000,
     description: "End-to-end classification workflow with feature engineering and model selection automation.",
     version: 1,
     isActive: true,
-  },
+  }),
 ];
 
 export default function AssetsPage() {
@@ -133,16 +142,7 @@ export default function AssetsPage() {
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {assets.map((asset) => (
-              <AssetCard
-                key={asset.id}
-                id={asset.id}
-                name={asset.name}
-                type={asset.type}
-                price={asset.price}
-                description={asset.description}
-                version={asset.version}
-                isActive={asset.isActive}
-              />
+              <AssetCard key={asset.id} asset={asset} />
             ))}
           </div>
         )}

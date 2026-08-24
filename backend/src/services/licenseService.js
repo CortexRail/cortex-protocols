@@ -180,6 +180,73 @@ async function expireLicense(licenseId) {
 }
 
 /**
+ * Buy additional calls for an existing usage-based license.
+ *
+ * There is no separate per-call price field: a top-up buys calls at the same
+ * effective rate as the license's original allotment (asset.price for
+ * DEFAULT_USAGE_BASED_CALLS calls), so `pricePerCall = ceil(asset.price /
+ * DEFAULT_USAGE_BASED_CALLS)`. The charge is added to the license's
+ * price_paid (so lifetime revenue stays accurate) and logged as a
+ * zero-count-impact usage event so per-asset revenue analytics pick it up
+ * the same way a fresh purchase does.
+ *
+ * @returns {Promise<{ license: object, amountCharged: number, callsAdded: number }>}
+ */
+async function topUpLicense({ licenseId, buyer, calls }) {
+  if (!Number.isInteger(calls) || calls < 1) {
+    throw httpError(400, "calls must be a positive integer");
+  }
+
+  return withTransaction(async (client) => {
+    const license = await licenseRepository.findById(licenseId, client);
+    if (!license) {
+      throw httpError(404, `License ${licenseId} not found`);
+    }
+    if (license.buyer !== buyer) {
+      throw httpError(403, "This license does not belong to the given buyer");
+    }
+    if (license.licenseType !== "UsageBased") {
+      throw httpError(400, "Only usage-based licenses can be topped up");
+    }
+    if (!license.isActive) {
+      throw httpError(400, "License is not active");
+    }
+
+    const asset = await assetRepository.findById(license.assetId, { includeInactive: true }, client);
+    if (!asset) {
+      throw httpError(404, `Asset ${license.assetId} not found`);
+    }
+
+    const pricePerCall = Math.ceil(asset.price / DEFAULT_USAGE_BASED_CALLS);
+    const amountCharged = pricePerCall * calls;
+
+    const updated = await licenseRepository.addCallsAndPrice(
+      licenseId,
+      { addCalls: calls, addPricePaid: amountCharged },
+      client
+    );
+    if (!updated) {
+      throw httpError(409, "License is no longer eligible for top-up");
+    }
+
+    await usageEventRepository.record(
+      {
+        source: "license",
+        licenseId: updated.id,
+        assetId: updated.assetId,
+        caller: buyer,
+        counterparty: asset.owner,
+        payloadHash: null,
+        pricePaid: amountCharged,
+      },
+      client
+    );
+
+    return { license: updated, amountCharged, callsAdded: calls };
+  });
+}
+
+/**
  * Operator revocation: immediately zeroes the metered-call counter so a
  * usage-based license can't be drawn on further. Used by
  * `cortex-admin license revoke`.
@@ -198,6 +265,7 @@ module.exports = {
   getLicense,
   listLicensesForBuyer,
   expireLicense,
+  topUpLicense,
   revokeLicense,
   DEFAULT_USAGE_BASED_CALLS,
   SUBSCRIPTION_PERIOD_MS,
