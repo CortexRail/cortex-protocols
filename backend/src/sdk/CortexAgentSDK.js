@@ -25,10 +25,7 @@ class CortexAgentSDK {
    * @param {string} [config.tokenAddress] - Token asset address (default 'native' for XLM)
    * @param {Keypair} config.buyerKeypair - Buyer keypair for signing transactions
    * @param {Keypair} [config.sellerKeypair] - Seller keypair, required only for
-   *   the seller-side `attestCall`. A seller's G... address is an Ed25519
-   *   public key, so the key that receives payment is also the one that signs
-   *   attestations; pass a different keypair only if you have registered it
-   *   on-chain with register_attestation_key.
+   *   the seller-side `attestCall`.
    */
   constructor(config) {
     if (!config.backendUrl) {
@@ -44,19 +41,15 @@ class CortexAgentSDK {
     this.horizonUrl = config.horizonUrl || "https://horizon-testnet.stellar.org";
     this.networkPassphrase = config.networkPassphrase || "Test SDF Network ; September 2015";
     this.micropaymentsContractId = config.micropaymentsContractId;
-    this.tokenAddress = config.tokenAddress || "CDLZFC3SYJYDZT7K6AOFHG23NFR7EDLI226OJZ5U3XEE2FEUA7HJTZUA"; // default testnet native token or mock
+    this.tokenAddress = config.tokenAddress || "CDLZFC3SYJYDZT7K6AOFHG23NFR7EDLI226OJZ5U3XEE2FEUA7HJTZUA";
 
-    // Lazy load server instances
     this.rpcServer = new SorobanRpc.Server(this.rpcUrl);
 
-    // Seller-side signing is optional: a buyer-only agent never needs a key it
-    // does not have, so the builder is only constructed when one is supplied.
     this.sellerKeypair = config.sellerKeypair || null;
     this._attestationBuilder = this.sellerKeypair
       ? new AttestationBuilder({ signer: this.sellerKeypair })
       : null;
 
-    // Verification is stateless and needs no key, so every agent gets one.
     this._attestationVerifier = new AttestationVerifier();
   }
 
@@ -82,9 +75,19 @@ class CortexAgentSDK {
       const data = await res.json().catch(() => ({}));
       const err = new Error(data.error || `HTTP error ${res.status}`);
       err.status = res.status;
+      err.data = data;
       throw err;
     }
     return res.json();
+  }
+
+  /**
+   * Estimates base fee, suggested tip, and admission probability for an asset.
+   * @param {string|number} assetId
+   * @returns {Promise<{ baseFee: string, suggestedTip: string, admissionProbability: number }>}
+   */
+  async estimateCall(assetId) {
+    return this._request("GET", `/api/v1/assets/${assetId}/market/estimate`);
   }
 
   /**
@@ -117,7 +120,6 @@ class CortexAgentSDK {
   async openStream(assetId, depositXlm, durationHours) {
     const buyerPubkey = this.buyerKeypair.publicKey();
 
-    // 1. Handshake to initiate session and retrieve initial quote
     const handshake = await this._request("POST", "/api/v1/protocol/handshake", {
       publicKey: buyerPubkey,
       assetId: Number(assetId),
@@ -126,7 +128,6 @@ class CortexAgentSDK {
     const quote = handshake.quote;
     const initialPrice = handshake.price;
 
-    // 2. Propose a rate (negotiate rate). We propose the quote price
     const negotiation = await this._request("POST", "/api/v1/protocol/negotiate", {
       buyer: buyerPubkey,
       assetId: Number(assetId),
@@ -138,20 +139,15 @@ class CortexAgentSDK {
       throw new Error(`Rate negotiation failed: server replied with status ${negotiation.status}`);
     }
 
-    const agreedRate = negotiation.rate; // price per call in stroops
-
-    // Calculate duration and on-chain flow rate
+    const agreedRate = negotiation.rate;
     const durationSecs = durationHours * 3600;
     const depositStroops = Math.floor(depositXlm * 10_000_000);
     const ratePerSecond = Math.max(1, Math.floor(depositStroops / durationSecs));
 
     let streamId;
-
-    // Determine recipient/seller key
     const assetDetail = await this._request("GET", `/api/v1/assets/${assetId}`);
     const recipientPubkey = assetDetail.owner;
 
-    // 3. Open stream on-chain
     try {
       streamId = await this._openStreamOnChain(
         recipientPubkey,
@@ -161,11 +157,9 @@ class CortexAgentSDK {
       );
     } catch (err) {
       logger.warn("[CortexAgentSDK] On-chain stream opening failed, falling back to mock registration:", err.message);
-      // Fallback: Generate a random stream ID in mock/offline mode
       streamId = Math.floor(Math.random() * 1_000_000) + 1;
     }
 
-    // 4. Register opened stream with the server and retrieve stream token JWT
     const register = await this._request("POST", "/api/v1/protocol/stream/open", {
       streamId,
       agreedRate,
@@ -180,16 +174,12 @@ class CortexAgentSDK {
     };
   }
 
-  /**
-   * Internal helper to make Soroban RPC call to open stream on-chain.
-   */
   async _openStreamOnChain(recipient, deposit, ratePerSecond, durationSecs) {
     const contractId = this.micropaymentsContractId;
     if (!contractId) {
       throw new Error("micropaymentsContractId is not configured on SDK client");
     }
 
-    // Load account sequence
     const buyerAddr = this.buyerKeypair.publicKey();
     const res = await fetch(`${this.horizonUrl}/accounts/${buyerAddr}`);
     if (!res.ok) throw new Error("Horizon account load failed");
@@ -228,7 +218,6 @@ class CortexAgentSDK {
       throw new Error(`Tx send failed: ${submit.errorResult}`);
     }
 
-    // Poll status
     let status = await this.rpcServer.getTransaction(submit.hash);
     let retries = 0;
     while (status.status === "NOT_FOUND" && retries < 10) {
@@ -246,13 +235,23 @@ class CortexAgentSDK {
 
   /**
    * Make a metered API call using the stream token.
-   * Handles 402 Payment Required errors automatically.
+   * Enforces maxBaseFee protection without silently over-paying.
+   *
+   * @param {string} streamToken
+   * @param {object} payload
+   * @param {object} [options]
+   * @param {object|null} [options.attestation]
+   * @param {bigint|number|string|null} [options.maxBaseFee]
+   * @param {bigint|number|string|null} [options.tip]
    */
-  async call(streamToken, payload, { attestation = null } = {}) {
+  async call(streamToken, payload, { attestation = null, maxBaseFee = null, tip = null } = {}) {
     try {
-      // Metering refuses unattested calls, so the seller's attestation rides
-      // along with the meter request rather than being reported separately.
-      const body = attestation ? { ...payload, attestation } : payload;
+      const body = {
+        ...payload,
+        attestation,
+        maxBaseFee,
+        tip,
+      };
       return await this._request("POST", "/api/v1/protocol/meter", body, {
         Authorization: `Bearer ${streamToken}`,
       });
@@ -260,35 +259,23 @@ class CortexAgentSDK {
       if (err.status === 402) {
         throw new Error("Payment Required: Stream balance exhausted or expired (402)");
       }
+      if (err.status === 429) {
+        const customErr = new Error("Capacity exhausted for current window (429)");
+        customErr.status = 429;
+        customErr.currentBaseFee = err.data?.currentBaseFee;
+        customErr.nextWindowEstimate = err.data?.nextWindowEstimate;
+        customErr.suggestedTip = err.data?.suggestedTip;
+        throw customErr;
+      }
       throw err;
     }
   }
 
-  /**
-   * Retrieve the claimable balance of the stream.
-   */
   async getBalance(streamId) {
     const res = await this._request("GET", `/api/v1/protocol/stream/${streamId}/balance`);
     return res.claimable;
   }
 
-  // ── Attestation: seller side ───────────────────────────────────────────────
-
-  /**
-   * Sign an attestation for a call this agent just served.
-   *
-   * Attach the result to the API response and the buyer can prove, without
-   * trusting the backend or this SDK, that the call happened and that it was
-   * this seller who said so.
-   *
-   *   const result = await handleRequest(req);
-   *   return { ...result, attestation: sdk.attestCall(streamId, req, result) };
-   *
-   * The call index advances locally. After a restart, seed it from the last
-   * index the backend archived (`GET .../attestations/next-index`) via
-   * `seedAttestationIndex`, or the first attestation after the restart is
-   * rejected as non-monotonic.
-   */
   attestCall(streamId, request, response) {
     if (!this._attestationBuilder) {
       throw new Error("sellerKeypair is required to attest calls");
@@ -296,12 +283,6 @@ class CortexAgentSDK {
     return this._attestationBuilder.attest({ streamId, request, response });
   }
 
-  /**
-   * Wrap an existing response handler so every response carries an attestation.
-   *
-   * This is the drop-in path: the handler keeps its signature and its return
-   * shape, and gains an `attestation` field.
-   */
   attestHandler(handler, options) {
     if (!this._attestationBuilder) {
       throw new Error("sellerKeypair is required to attest calls");
@@ -309,7 +290,6 @@ class CortexAgentSDK {
     return this._attestationBuilder.wrap(handler, options);
   }
 
-  /** Restore the local call-index counter after a restart. */
   async seedAttestationIndex(streamId) {
     const res = await this._request(
       "GET",
@@ -319,31 +299,10 @@ class CortexAgentSDK {
     return res.lastCallIndex;
   }
 
-  // ── Attestation: buyer side ────────────────────────────────────────────────
-
-  /**
-   * Verify one attestation against the seller's public key.
-   *
-   * Entirely local: no network, no backend, no trust. `sellerPublicKey`
-   * defaults to whatever the attestation claims, which is only meaningful if
-   * you already know the seller's address — pass it explicitly to check that
-   * the attestation came from the party you are actually paying.
-   *
-   * @returns {{valid: boolean, reason: string, message: string|null,
-   *   provableOnChain: boolean}}
-   */
   verifyAttestation(attestation, sellerPublicKey) {
     return this._attestationVerifier.check(attestation, { signer: sellerPublicKey });
   }
 
-  /**
-   * Verify a whole archived batch against its on-chain commitment.
-   *
-   * Fetches the archived attestations, re-derives the Merkle root locally, and
-   * compares it to the root the backend claims was committed. A mismatch means
-   * the archive and the commitment disagree — whether because the seller lied
-   * or the backend tampered, the batch should not be trusted either way.
-   */
   async verifyBatch(streamId, batchId, sellerPublicKey) {
     const archived = await this._request(
       "GET",
@@ -360,10 +319,7 @@ class CortexAgentSDK {
     let recomputedRoot = null;
     try {
       recomputedRoot = MerkleBatchBuilder.build(archived.attestations).root;
-    } catch {
-      // A set that will not form a tree (a gap in the indices, say) is itself
-      // the finding; recomputedRoot stays null and rootMatches stays false.
-    }
+    } catch {}
 
     const commitmentValid = MerkleBatchBuilder.verifyBatchSignature(
       {
@@ -392,19 +348,6 @@ class CortexAgentSDK {
     };
   }
 
-  /**
-   * Challenge a specific call in a committed batch, on-chain.
-   *
-   * Fetches the archived proof, checks locally that it actually reproduces the
-   * committed root, and only then spends a transaction on it — a proof that
-   * cannot reach the root would be rejected by the contract anyway, and the
-   * buyer would have paid for the privilege.
-   *
-   * @param {number} streamId
-   * @param {number} batchId - the on-chain batch id
-   * @param {number} callIndex - the call being contested
-   * @returns {{txHash: string, voidedCalls: number}}
-   */
   async challengeBatch(streamId, batchId, callIndex) {
     const contractId = this.micropaymentsContractId;
     if (!contractId) {
@@ -478,13 +421,6 @@ class CortexAgentSDK {
     };
   }
 
-  /**
-   * Marshal an attestation into the contract's AttestationLeaf struct.
-   *
-   * Field names and types have to match the #[contracttype] exactly — Soroban
-   * maps a struct to a symbol-keyed map, so a misspelled key is a decode error
-   * rather than a silently ignored field.
-   */
   _attestationLeafToScVal(attestation) {
     return nativeToScVal(
       {
@@ -510,13 +446,9 @@ class CortexAgentSDK {
     );
   }
 
-  /**
-   * Cancel stream on-chain (sender only) and reclaim remaining deposit.
-   */
   async closeStream(streamId) {
     const contractId = this.micropaymentsContractId;
     if (!contractId) {
-      // In mock/test environments, trigger settlement/cancellation off-chain
       return this._request("POST", `/api/v1/protocol/stream/${streamId}/cancel`);
     }
 

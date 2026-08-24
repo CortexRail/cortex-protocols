@@ -116,27 +116,21 @@ pub enum MarketplaceError {
     /// Bidder has already revealed a bid for this auction.
     BidAlreadyRevealed = 36,
 
-    /// Reveal uses a different payment token than the auction escrow.
-    TokenMismatch = 32,
-
     /// Policy not found.
-    PolicyNotFound = 33,
+    PolicyNotFound = 37,
 
     /// Invalid threshold or required signers.
-    InvalidThreshold = 34,
+    InvalidThreshold = 38,
 
     /// Proposal not found.
-    ProposalNotFound = 35,
+    ProposalNotFound = 39,
 
-    /// Signer is not authorized for this policy.
-    NotASigner = 36,
+    /// Base fee exceeds the buyer's maximum acceptable ceiling.
+    BaseFeeExceedsMax = 40,
 
-    /// Signer already approved this proposal.
-    SignerAlreadyApproved = 37,
+    /// Base fee update already performed for this window.
+    WindowAlreadyUpdated = 41,
 
-    /// Proposal is not in pending state.
-    ProposalNotPending = 38,
-
-    /// Proposal has expired.
-    ProposalExpired = 39,
+    /// Requested capacity exceeds window capacity limit.
+    CapacityExceeded = 42,
 }
