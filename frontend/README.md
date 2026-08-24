@@ -91,6 +91,35 @@ src/
 
 ---
 
+## Generated Soroban Clients
+
+The frontend includes auto-generated TypeScript clients for the Soroban smart contracts (Marketplace, Micropayments, Agent Registry). These clients are generated using `stellar contract bindings typescript` during the deployment process and live in `src/lib/contracts/`.
+
+A React Context provider called `ContractProvider` wraps these clients and makes them available throughout the app via the `useContracts` hook.
+
+### Usage Example
+
+```tsx
+"use client";
+import { useContracts } from "@/components/ContractProvider";
+
+export function AssetComponent({ assetId }: { assetId: string }) {
+  const { marketplace } = useContracts();
+  
+  const fetchAsset = async () => {
+    if (marketplace) {
+      // Direct contract read replacing the backend fetch
+      const result = await marketplace.get_asset({ asset_id: BigInt(assetId) });
+      console.log("Asset from contract:", result);
+    }
+  };
+  
+  return <button onClick={fetchAsset}>Load Asset</button>;
+}
+```
+
+---
+
 ## Environment Variables
 
 Development does not require any environment variables by default.
