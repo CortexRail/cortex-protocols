@@ -4,37 +4,52 @@
  *
  * Mirrors the layout style of `../attestation/canonical.js`: a fixed-width
  * big-endian record beats JSON for the same reasons it does there — no
- * canonicalisation question, and this preimage has to have a byte-for-byte
- * twin in the Soroban contract's `ChannelState` encoding once that crate
- * exists, so ambiguity here becomes a silent cross-language mismatch later.
+ * canonicalisation question, and this preimage has a byte-for-byte twin in
+ * the Soroban contract's `state.rs` (`contract/contracts/channels/src/state.rs`),
+ * so ambiguity here becomes a silent cross-language mismatch there.
  *
  * ── Wire format ──────────────────────────────────────────────────────────
  *
- * STATE_PREIMAGE is a fixed 32-byte big-endian record:
+ * STATE_PREIMAGE is a fixed 96-byte big-endian record:
  *
  *   offset  size  field
  *   ------  ----  ---------------------------------------------------------
- *        0     8  channel_id   u64 BE
- *        8     8  version      u64 BE, monotonic per channel
- *       16     8  balance_a    u64 BE
- *       24     8  balance_b    u64 BE
+ *        0     8  channel_id            u64 BE
+ *        8     8  version               u64 BE, monotonic per channel
+ *       16     8  balance_a             u64 BE
+ *       24     8  balance_b             u64 BE
+ *       32    32  revocation_commit_a   sha256(party A's revocation secret for this version)
+ *       64    32  revocation_commit_b   sha256(party B's revocation secret for this version)
  *
  * The signed message is `0x10 || STATE_PREIMAGE`. Domain tag 0x10 is chosen
  * clear of the attestation module's 0x00/0x01/0x02 so a channel-state
  * signature can never be replayed as, or confused with, an attestation leaf
  * even if the two byte layouts ever happened to collide in length.
  *
+ * ── Why the revocation commitments are part of the signed state ──────────
+ *
+ * `punish(challenger, channel_id, revocation_secret)` has to decide, from
+ * nothing but a bare 32-byte secret, whether some *earlier* version was
+ * revoked — the whole value of a watchtower is that it can do this without
+ * ever having seen the later state that superseded it (see RevocationStore's
+ * header for why: the watchtower must not learn channel balances). That is
+ * only checkable if the version being punished carries, as part of what both
+ * parties signed, the exact hash the secret must open. So each state commits
+ * to its own party-generated revocation secrets — RevocationStore.commit()
+ * produces the two hashes that go in these fields — and revealing either
+ * secret later (RevocationStore.reveal()) is what proves this version was
+ * superseded, per the protocol documented in RevocationStore.js.
+ *
  * `commitmentHash = sha256(signingMessage)` is deliberately the same value a
- * Watchtower blob is keyed on (see RevocationStore / the issue's Watchtower
- * spec): a watchtower that only ever sees commitment hashes never learns a
- * channel's balances, only which exact state it is holding a justice
- * transaction for.
+ * Watchtower blob is keyed on: a watchtower that only ever sees commitment
+ * hashes never learns a channel's balances, only which exact state it is
+ * holding a justice transaction for.
  */
 
 const crypto = require("crypto");
-const { toU64, HASH_BYTES } = require("../attestation/canonical");
+const { toU64, toFixedBuffer, HASH_BYTES } = require("../attestation/canonical");
 
-const STATE_PREIMAGE_BYTES = 32;
+const STATE_PREIMAGE_BYTES = 96;
 const DOMAIN_CHANNEL_STATE = 0x10;
 
 const OFFSETS = Object.freeze({
@@ -42,6 +57,8 @@ const OFFSETS = Object.freeze({
   version: 8,
   balanceA: 16,
   balanceB: 24,
+  revocationCommitA: 32,
+  revocationCommitB: 64,
 });
 
 function writeU64BE(buf, value, offset, label) {
@@ -49,14 +66,16 @@ function writeU64BE(buf, value, offset, label) {
 }
 
 /**
- * Serialize a channel state into its canonical 32-byte preimage.
+ * Serialize a channel state into its canonical 96-byte preimage.
  *
  * @param {object} state
  * @param {number|bigint|string} state.channel_id
  * @param {number|bigint|string} state.version
  * @param {number|bigint|string} state.balance_a
  * @param {number|bigint|string} state.balance_b
- * @returns {Buffer} 32 bytes
+ * @param {Buffer|string} state.revocation_commit_a - 32 bytes
+ * @param {Buffer|string} state.revocation_commit_b - 32 bytes
+ * @returns {Buffer} 96 bytes
  */
 function encodeStatePreimage(state) {
   if (!state || typeof state !== "object") throw new Error("state must be an object");
@@ -66,10 +85,18 @@ function encodeStatePreimage(state) {
   writeU64BE(buf, state.version, OFFSETS.version, "version");
   writeU64BE(buf, state.balance_a, OFFSETS.balanceA, "balance_a");
   writeU64BE(buf, state.balance_b, OFFSETS.balanceB, "balance_b");
+  toFixedBuffer(state.revocation_commit_a, HASH_BYTES, "revocation_commit_a").copy(
+    buf,
+    OFFSETS.revocationCommitA
+  );
+  toFixedBuffer(state.revocation_commit_b, HASH_BYTES, "revocation_commit_b").copy(
+    buf,
+    OFFSETS.revocationCommitB
+  );
   return buf;
 }
 
-/** Parse a 32-byte preimage back into a state with numeric fields. */
+/** Parse a 96-byte preimage back into a state with hex/numeric fields. */
 function decodeStatePreimage(bytes) {
   if (!Buffer.isBuffer(bytes) || bytes.length !== STATE_PREIMAGE_BYTES) {
     throw new Error(`preimage must be exactly ${STATE_PREIMAGE_BYTES} bytes`);
@@ -79,6 +106,12 @@ function decodeStatePreimage(bytes) {
     version: Number(bytes.readBigUInt64BE(OFFSETS.version)),
     balance_a: Number(bytes.readBigUInt64BE(OFFSETS.balanceA)),
     balance_b: Number(bytes.readBigUInt64BE(OFFSETS.balanceB)),
+    revocation_commit_a: bytes
+      .subarray(OFFSETS.revocationCommitA, OFFSETS.revocationCommitA + HASH_BYTES)
+      .toString("hex"),
+    revocation_commit_b: bytes
+      .subarray(OFFSETS.revocationCommitB, OFFSETS.revocationCommitB + HASH_BYTES)
+      .toString("hex"),
   };
 }
 
@@ -90,9 +123,10 @@ function signingMessage(state) {
 /**
  * commitment_hash = sha256(0x10 || STATE_PREIMAGE)
  *
- * The value a Watchtower blob is keyed on, and what a `punish` claim must
- * reproduce from a revealed revocation secret plus the revoked state's
- * fields — see RevocationStore.
+ * The value a Watchtower blob is keyed on. Distinct from the per-version
+ * revocation commitments carried *inside* the state (`revocation_commit_a/b`,
+ * which open a party's revocation secret) — this hash identifies the state
+ * as a whole, theirs identify the right to punish it.
  */
 function commitmentHash(state) {
   return crypto.createHash("sha256").update(signingMessage(state)).digest();

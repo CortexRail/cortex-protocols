@@ -7,6 +7,7 @@
  * contract crate exists to integration-test against.
  */
 
+const crypto = require("crypto");
 const { Keypair } = require("@stellar/stellar-sdk");
 const canonical = require("../../channels/canonical");
 const ChannelState = require("../../channels/ChannelState");
@@ -16,6 +17,10 @@ const { Reason } = ChannelState;
 const A = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 1));
 const B = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 2));
 const MALLORY = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 3));
+
+function commit(seed) {
+  return crypto.createHash("sha256").update(Buffer.from([seed])).digest("hex");
+}
 
 function dualSign(state, kpA = A, kpB = B) {
   const withA = ChannelState.withSignature(state, "a", ChannelState.sign(state, kpA));
@@ -28,20 +33,39 @@ function state(overrides = {}) {
     version: 0,
     balanceA: 1000,
     balanceB: 0,
+    revocationCommitA: commit(0xa0),
+    revocationCommitB: commit(0xb0),
     ...overrides,
   });
 }
 
 describe("canonical encoding", () => {
-  const raw = { channel_id: 42, version: 7, balance_a: 600, balance_b: 400 };
+  const raw = {
+    channel_id: 42,
+    version: 7,
+    balance_a: 600,
+    balance_b: 400,
+    revocation_commit_a: commit(0x01),
+    revocation_commit_b: commit(0x02),
+  };
 
-  it("encodes a state as exactly 32 fixed-width bytes", () => {
+  it("encodes a state as exactly 96 fixed-width bytes", () => {
     const encoded = canonical.encodeStatePreimage(raw);
     expect(encoded).toHaveLength(canonical.STATE_PREIMAGE_BYTES);
     expect(encoded.readBigUInt64BE(canonical.OFFSETS.channelId)).toBe(42n);
     expect(encoded.readBigUInt64BE(canonical.OFFSETS.version)).toBe(7n);
     expect(encoded.readBigUInt64BE(canonical.OFFSETS.balanceA)).toBe(600n);
     expect(encoded.readBigUInt64BE(canonical.OFFSETS.balanceB)).toBe(400n);
+    expect(
+      encoded
+        .subarray(canonical.OFFSETS.revocationCommitA, canonical.OFFSETS.revocationCommitA + 32)
+        .toString("hex")
+    ).toBe(raw.revocation_commit_a);
+    expect(
+      encoded
+        .subarray(canonical.OFFSETS.revocationCommitB, canonical.OFFSETS.revocationCommitB + 32)
+        .toString("hex")
+    ).toBe(raw.revocation_commit_b);
   });
 
   it("round-trips a state through encode/decode", () => {
@@ -52,6 +76,12 @@ describe("canonical encoding", () => {
     expect(() => canonical.encodeStatePreimage({ ...raw, balance_a: -1 })).toThrow();
   });
 
+  it("rejects a revocation commitment of the wrong width", () => {
+    expect(() =>
+      canonical.encodeStatePreimage({ ...raw, revocation_commit_a: "ab".repeat(16) })
+    ).toThrow(/64 hex characters/);
+  });
+
   it("keeps the signing-message domain tag clear of the attestation module's", () => {
     const message = canonical.signingMessage(raw);
     expect(message[0]).toBe(canonical.DOMAIN_CHANNEL_STATE);
@@ -60,10 +90,22 @@ describe("canonical encoding", () => {
     expect(message[0]).not.toBe(0x02);
   });
 
-  it("commitment hash changes if any field changes", () => {
+  it("commitment hash changes if any balance field changes", () => {
     const h1 = canonical.commitmentHash(raw).toString("hex");
     const h2 = canonical.commitmentHash({ ...raw, balance_a: 601, balance_b: 399 }).toString("hex");
     expect(h1).not.toBe(h2);
+  });
+
+  it("commitment hash changes if either revocation commitment changes", () => {
+    const h1 = canonical.commitmentHash(raw).toString("hex");
+    const h2 = canonical
+      .commitmentHash({ ...raw, revocation_commit_a: commit(0x99) })
+      .toString("hex");
+    const h3 = canonical
+      .commitmentHash({ ...raw, revocation_commit_b: commit(0x99) })
+      .toString("hex");
+    expect(h1).not.toBe(h2);
+    expect(h1).not.toBe(h3);
   });
 });
 
@@ -74,8 +116,18 @@ describe("createState", () => {
     expect(s.sig_b).toBeNull();
   });
 
+  it("carries both revocation commitments unchanged", () => {
+    const s = state({ revocationCommitA: commit(0x11), revocationCommitB: commit(0x22) });
+    expect(s.revocation_commit_a).toBe(commit(0x11));
+    expect(s.revocation_commit_b).toBe(commit(0x22));
+  });
+
   it("rejects a non-integer balance at creation, not later at sign time", () => {
     expect(() => state({ balanceA: 1.5 })).toThrow();
+  });
+
+  it("rejects a malformed revocation commitment at creation", () => {
+    expect(() => state({ revocationCommitA: "not-hex" })).toThrow();
   });
 });
 
@@ -90,14 +142,16 @@ describe("sign / withSignature / verify", () => {
   });
 
   it("rejects a state missing sig_a", () => {
-    const s = ChannelState.withSignature(state(), "b", ChannelState.sign(state(), B));
+    const s0 = state();
+    const s = ChannelState.withSignature(s0, "b", ChannelState.sign(s0, B));
     expect(ChannelState.verify(s, A.publicKey(), B.publicKey()).reason).toBe(
       Reason.MISSING_SIGNATURE_A
     );
   });
 
   it("rejects a state missing sig_b", () => {
-    const s = ChannelState.withSignature(state(), "a", ChannelState.sign(state(), A));
+    const s0 = state();
+    const s = ChannelState.withSignature(s0, "a", ChannelState.sign(s0, A));
     expect(ChannelState.verify(s, A.publicKey(), B.publicKey()).reason).toBe(
       Reason.MISSING_SIGNATURE_B
     );
@@ -121,6 +175,15 @@ describe("sign / withSignature / verify", () => {
   it("rejects a state whose version was tampered with after signing", () => {
     const s = dualSign(state({ version: 5 }));
     const tampered = { ...s, version: 6 };
+    expect(ChannelState.verify(tampered, A.publicKey(), B.publicKey()).valid).toBe(false);
+  });
+
+  it("rejects a state whose revocation commitment was swapped after signing", () => {
+    // The whole point of signing the commitments is that nobody — including
+    // one of the two channel parties — can rebind a version to a different
+    // revocation secret after the fact.
+    const s = dualSign(state());
+    const tampered = { ...s, revocation_commit_a: commit(0xff) };
     expect(ChannelState.verify(tampered, A.publicKey(), B.publicKey()).valid).toBe(false);
   });
 
@@ -155,17 +218,26 @@ describe("compareVersions / supersedes", () => {
     // The scenario from the issue: party A closes with version 40 while B
     // holds version 87. B's later state must supersede.
     const stale = dualSign(state({ version: 40, balanceA: 600, balanceB: 400 }));
-    const later = dualSign(state({ version: 87, balanceA: 100, balanceB: 900 }));
+    const later = dualSign(
+      state({
+        version: 87,
+        balanceA: 100,
+        balanceB: 900,
+        revocationCommitA: commit(0x87),
+        revocationCommitB: commit(0x88),
+      })
+    );
     expect(ChannelState.supersedes(later, stale, A.publicKey(), B.publicKey())).toBe(true);
     expect(ChannelState.supersedes(stale, later, A.publicKey(), B.publicKey())).toBe(false);
   });
 
   it("a higher version that is not validly signed does not supersede", () => {
     const stale = dualSign(state({ version: 40 }));
+    const higher = state({ version: 41 });
     const forged = ChannelState.withSignature(
-      ChannelState.withSignature(state({ version: 41 }), "a", ChannelState.sign(state({ version: 41 }), MALLORY)),
+      ChannelState.withSignature(higher, "a", ChannelState.sign(higher, MALLORY)),
       "b",
-      ChannelState.sign(state({ version: 41 }), B)
+      ChannelState.sign(higher, B)
     );
     expect(ChannelState.supersedes(forged, stale, A.publicKey(), B.publicKey())).toBe(false);
   });

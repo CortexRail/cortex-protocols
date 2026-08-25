@@ -132,6 +132,62 @@ describe("verifySecret — the fraud-proof / punish() check", () => {
   });
 });
 
+describe("recordCommitment / recordRevealedSecret — the two-process case", () => {
+  // ChannelNegotiator runs one RevocationStore per party, in separate
+  // processes. A's store generates and owns the 'a' secret; it never sees
+  // B's raw secret until B's process reveals it over the wire, so it has to
+  // be able to record B's *commitment* up front and B's *secret* later,
+  // without ever generating either itself.
+
+  it("lets a store record a counterparty's commitment without generating a secret", () => {
+    const ownerStore = new RevocationStore();
+    const commitmentHash = ownerStore.commit(1, 40, "a");
+
+    const counterpartyStore = new RevocationStore();
+    counterpartyStore.recordCommitment(1, 40, "a", commitmentHash);
+
+    expect(counterpartyStore.commitmentHashFor(1, 40, "a")).toBe(commitmentHash);
+  });
+
+  it("recordCommitment is one-shot, same as commit()", () => {
+    const store = new RevocationStore();
+    store.recordCommitment(1, 40, "a", crypto.randomBytes(32).toString("hex"));
+    expect(() =>
+      store.recordCommitment(1, 40, "a", crypto.randomBytes(32).toString("hex"))
+    ).toThrow(/already exists/);
+  });
+
+  it("accepts and verifies a secret revealed by the counterparty", () => {
+    const ownerStore = new RevocationStore();
+    const commitmentHash = ownerStore.commit(1, 40, "a");
+    const secret = ownerStore.reveal(1, 40, "a");
+
+    const counterpartyStore = new RevocationStore();
+    counterpartyStore.recordCommitment(1, 40, "a", commitmentHash);
+    counterpartyStore.recordRevealedSecret(1, 40, "a", secret);
+
+    expect(counterpartyStore.isRevoked(1, 40)).toBe(true);
+    expect(counterpartyStore.verifySecret(1, 40, secret)).toEqual({ valid: true, party: "a" });
+  });
+
+  it("rejects a revealed secret that does not match the recorded commitment", () => {
+    const store = new RevocationStore();
+    store.recordCommitment(1, 40, "a", crypto.randomBytes(32).toString("hex"));
+
+    const wrongSecret = crypto.randomBytes(32).toString("hex");
+    expect(() => store.recordRevealedSecret(1, 40, "a", wrongSecret)).toThrow(
+      /does not match the recorded commitment/
+    );
+    expect(store.isRevoked(1, 40)).toBe(false);
+  });
+
+  it("reveal() refuses to act on a slot this store does not own", () => {
+    const store = new RevocationStore();
+    store.recordCommitment(1, 40, "a", crypto.randomBytes(32).toString("hex"));
+    expect(() => store.reveal(1, 40, "a")).toThrow(/recordRevealedSecret instead/);
+  });
+});
+
 describe("commitmentHashFor", () => {
   it("returns null when nothing has been committed", () => {
     const store = new RevocationStore();

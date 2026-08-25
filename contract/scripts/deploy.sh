@@ -163,6 +163,7 @@ write_addresses_json() {
   local marketplace="$1"
   local micropayments="$2"
   local agent_registry="$3"
+  local channels="$4"
   local timestamp
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -172,6 +173,7 @@ write_addresses_json() {
     --arg mp "$marketplace" \
     --arg mc "$micropayments" \
     --arg ar "$agent_registry" \
+    --arg ch "$channels" \
     '{
       "network": $network,
       "deployed_at": $ts,
@@ -187,6 +189,10 @@ write_addresses_json() {
         "agent_registry": {
           "address": $ar,
           "name": "AgentRegistryContract"
+        },
+        "channels": {
+          "address": $ch,
+          "name": "ChannelsContract"
         }
       }
     }' > "$ADDRESSES_FILE"
@@ -200,6 +206,7 @@ sync_to_backend_env() {
   local marketplace="$1"
   local micropayments="$2"
   local agent_registry="$3"
+  local channels="$4"
 
   local backend_env="$CONTRACT_DIR/../backend/.env"
 
@@ -227,6 +234,7 @@ sync_to_backend_env() {
   _set_env_var "MARKETPLACE_CONTRACT_ID"    "$marketplace"
   _set_env_var "MICROPAYMENTS_CONTRACT_ID"  "$micropayments"
   _set_env_var "AGENT_REGISTRY_CONTRACT_ID" "$agent_registry"
+  _set_env_var "CHANNELS_CONTRACT_ID"       "$channels"
 
   log_ok "backend/.env updated with contract addresses"
 }
@@ -246,10 +254,11 @@ main() {
   MARKETPLACE_ADDR=$(deploy_contract "marketplace")
   MICROPAYMENTS_ADDR=$(deploy_contract "micropayments")
   AGENT_REGISTRY_ADDR=$(deploy_contract "agent_registry")
+  CHANNELS_ADDR=$(deploy_contract "channels")
 
   log_step "Writing deployment artifacts"
-  write_addresses_json "$MARKETPLACE_ADDR" "$MICROPAYMENTS_ADDR" "$AGENT_REGISTRY_ADDR"
-  sync_to_backend_env  "$MARKETPLACE_ADDR" "$MICROPAYMENTS_ADDR" "$AGENT_REGISTRY_ADDR"
+  write_addresses_json "$MARKETPLACE_ADDR" "$MICROPAYMENTS_ADDR" "$AGENT_REGISTRY_ADDR" "$CHANNELS_ADDR"
+  sync_to_backend_env  "$MARKETPLACE_ADDR" "$MICROPAYMENTS_ADDR" "$AGENT_REGISTRY_ADDR" "$CHANNELS_ADDR"
 
   echo ""
   echo -e "${GREEN}${BOLD}✔ Deployment complete!${RESET}"

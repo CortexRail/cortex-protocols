@@ -103,8 +103,62 @@ class RevocationStore {
         `no revocation commitment for channel ${channelId} version ${version} party ${party}`
       );
     }
+    if (!entry.secret) {
+      throw new Error(
+        `channel ${channelId} version ${version} party ${party} is a recorded (counterparty-owned) ` +
+          "commitment, not one this store generated — use recordRevealedSecret instead"
+      );
+    }
     entry.revealed = true;
     return entry.secret.toString("hex");
+  }
+
+  /**
+   * Record a counterparty's published commitment hash for a slot this store
+   * does not own — used by ChannelNegotiator on the receiving side of a
+   * propose/counter-sign exchange, where each party's Ed25519 secret lives
+   * only in that party's own process. Unlike commit(), this never generates
+   * a secret; it just remembers the hash so a later revealed secret can be
+   * checked against it.
+   *
+   * One-shot, same as commit(): a slot's commitment is fixed the first time
+   * either party learns of it.
+   */
+  recordCommitment(channelId, version, party, commitmentHashHex) {
+    this._assertParty(party);
+    const slot = this._slot(channelId, version);
+    if (slot[party]) {
+      throw new Error(
+        `a revocation commitment already exists for channel ${channelId} version ${version} party ${party}`
+      );
+    }
+    slot[party] = {
+      secret: null,
+      commitmentHash: Buffer.from(commitmentHashHex, "hex"),
+      revealed: false,
+    };
+    return commitmentHashHex;
+  }
+
+  /**
+   * Record a secret the counterparty revealed for a slot this store does
+   * not own. Verifies it against the previously recorded commitment before
+   * accepting it — a mismatch means the counterparty sent a secret that
+   * does not open what they committed to, which is a protocol violation,
+   * not something this store should silently trust.
+   */
+  recordRevealedSecret(channelId, version, party, secretHex) {
+    this._assertParty(party);
+    const { valid } = this.verifySecret(channelId, version, secretHex);
+    if (!valid) {
+      throw new Error(
+        `revealed secret does not match the recorded commitment for channel ${channelId} ` +
+          `version ${version} party ${party}`
+      );
+    }
+    const slot = this._slot(channelId, version);
+    slot[party].secret = Buffer.from(secretHex, "hex");
+    slot[party].revealed = true;
   }
 
   /**
@@ -142,6 +196,19 @@ class RevocationStore {
       }
     }
     return { valid: false, party: null };
+  }
+
+  /**
+   * The revealed secret for (channelId, version, party), hex-encoded, or
+   * `null` if that slot has not been revealed (or does not exist). This is
+   * the read accessor FraudProofBuilder uses to find a punishable secret
+   * without needing to know in advance which party revealed it.
+   */
+  revealedSecretFor(channelId, version, party) {
+    this._assertParty(party);
+    const slot = this._slots.get(key(channelId, version));
+    const entry = slot?.[party];
+    return entry?.revealed && entry.secret ? entry.secret.toString("hex") : null;
   }
 
   /** The commitment hash on record for (channelId, version, party), if any. */
