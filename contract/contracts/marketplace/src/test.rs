@@ -49,13 +49,14 @@ fn test_list_and_get_asset() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-let asset_id = client.list_asset(
+    let asset_id = client.list_asset(
         &admin,
         &String::from_str(&env, "GPT-4 Chain-of-Thought Prompt"),
         &String::from_str(&env, "Advanced reasoning prompt for complex analysis"),
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &5_000_000i128, // 0.5 XLM
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert_eq!(asset_id, 1);
@@ -101,6 +102,7 @@ fn test_publish_update() {
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &1_000_000,
+        &soroban_sdk::Vec::new(&env),
     );
 
     client.publish_update(&admin, &asset_id, &String::from_str(&env, "Version two"));
@@ -141,6 +143,7 @@ fn test_publish_update_rejects_non_owner() {
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &1,
+        &soroban_sdk::Vec::new(&env),
     );
     client.publish_update(
         &stranger,
@@ -170,6 +173,7 @@ fn test_history_retains_latest_five_versions() {
         &AssetType::Workflow,
         &LicenseType::UsageBased,
         &1,
+        &soroban_sdk::Vec::new(&env),
     );
 
     for description in ["v2", "v3", "v4", "v5", "v6", "v7"] {
@@ -200,6 +204,7 @@ fn test_publish_update_rejects_version_overflow() {
         &AssetType::Dataset,
         &LicenseType::OpenSource,
         &0,
+        &soroban_sdk::Vec::new(&env),
     );
 
     env.as_contract(&contract_id, || {
@@ -235,13 +240,14 @@ fn test_multiple_assets() {
             String::from_str(&env, "Asset Five")
         };
 
-client.list_asset(
+        client.list_asset(
             &admin,
             &name,
             &String::from_str(&env, "A test intelligence asset"),
             &AssetType::Workflow,
             &LicenseType::UsageBased,
             &1_000_000i128,
+            &soroban_sdk::Vec::new(&env),
         );
     }
 
@@ -254,13 +260,14 @@ fn test_delist_asset() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-let asset_id = client.list_asset(
+    let asset_id = client.list_asset(
         &admin,
         &String::from_str(&env, "Deprecated Evaluator"),
         &String::from_str(&env, "Old evaluator being retired"),
         &AssetType::Evaluator,
         &LicenseType::Perpetual,
         &2_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     client.delist_asset(&admin, &asset_id);
@@ -275,13 +282,14 @@ fn test_update_price() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-let asset_id = client.list_asset(
+    let asset_id = client.list_asset(
         &admin,
         &String::from_str(&env, "Memory System v1"),
         &String::from_str(&env, "Persistent agent memory module"),
         &AssetType::MemorySystem,
         &LicenseType::Subscription,
         &10_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     client.update_price(&admin, &asset_id, &15_000_000i128);
@@ -300,13 +308,14 @@ fn test_purchase_license() {
     let (token_addr, token_sac) = create_token(&env, &buyer);
     token_sac.mint(&buyer, &50_000_000);
 
-let asset_id = client.list_asset(
+    let asset_id = client.list_asset(
         &admin,
         &String::from_str(&env, "Reasoning Chain Alpha"),
         &String::from_str(&env, "Multi-step reasoning for legal analysis"),
         &AssetType::ReasoningChain,
         &LicenseType::Perpetual,
         &10_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert!(!client.has_license(&buyer, &asset_id));
@@ -335,6 +344,7 @@ fn test_purchase_license_pins_current_and_retained_versions() {
         &AssetType::Tool,
         &LicenseType::Perpetual,
         &1_000_000,
+        &soroban_sdk::Vec::new(&env),
     );
     client.publish_update(&admin, &asset_id, &String::from_str(&env, "v2"));
     client.publish_update(&admin, &asset_id, &String::from_str(&env, "v3"));
@@ -367,6 +377,7 @@ fn setup_versioned_purchase() -> (Env, Address, Address, Address, Address, u64) 
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &1,
+        &soroban_sdk::Vec::new(&env),
     );
     (env, admin, contract_id, buyer, token_addr, asset_id)
 }
@@ -431,6 +442,7 @@ fn test_purchase_license_version_rejects_owner_purchase() {
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &1,
+        &soroban_sdk::Vec::new(&env),
     );
     client.purchase_license_version(&admin, &asset_id, &1, &token);
 }
@@ -589,13 +601,14 @@ fn test_has_no_license_by_default() {
     let client = MarketplaceContractClient::new(&env, &contract_id);
     client.initialize(&admin);
 
-client.list_asset(
+    client.list_asset(
         &admin,
         &String::from_str(&env, "Tool Pack"),
         &String::from_str(&env, "Collection of agent tools"),
         &AssetType::Tool,
         &LicenseType::UsageBased,
         &3_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert!(!client.has_license(&stranger, &1));
@@ -638,6 +651,7 @@ fn test_list_asset_rejects_negative_price() {
         &AssetType::Dataset,
         &LicenseType::UsageBased,
         &-1i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::InvalidPrice);
@@ -679,6 +693,7 @@ fn test_list_asset_rejects_empty_name() {
         &AssetType::Prompt,
         &LicenseType::Perpetual,
         &1_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert_eq!(
@@ -702,6 +717,7 @@ fn test_list_asset_accepts_name_of_exactly_200_bytes() {
         &AssetType::Workflow,
         &LicenseType::OpenSource,
         &1_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert!(result.is_ok());
@@ -722,6 +738,7 @@ fn test_list_asset_rejects_name_of_201_bytes() {
         &AssetType::Evaluator,
         &LicenseType::Perpetual,
         &1_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert_eq!(
@@ -746,6 +763,7 @@ fn test_list_asset_rejects_empty_description() {
         &AssetType::Dataset,
         &LicenseType::Subscription,
         &1_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert_eq!(
@@ -769,6 +787,7 @@ fn test_list_asset_accepts_description_of_exactly_2000_bytes() {
         &AssetType::MemorySystem,
         &LicenseType::UsageBased,
         &1_000_000i128,
+        &soroban_sdk::Vec::new(&env),
     );
 
     assert!(result.is_ok());
@@ -911,6 +930,7 @@ fn open_auction_for(
         &AssetType::Tool,
         &LicenseType::Perpetual,
         &min_bid,
+        &soroban_sdk::Vec::new(env),
     );
     client.open_auction(seller, &asset_id, &capacity, &min_bid, &duration)
 }
@@ -944,6 +964,7 @@ fn test_open_auction_creates_escrow_and_emits_event() {
         &AssetType::Tool,
         &LicenseType::Perpetual,
         &5_000_000,
+        &soroban_sdk::Vec::new(&env),
     );
 
     let auction_id = client.open_auction(&admin, &asset_id, &5, &1_000, &10);
@@ -992,6 +1013,7 @@ fn test_open_auction_rejects_zero_capacity() {
         &AssetType::Tool,
         &LicenseType::Perpetual,
         &1_000,
+        &soroban_sdk::Vec::from_array(&env, [String::from_str(&env, "tag")]),
     );
     let result = client.try_open_auction(&admin, &asset_id, &0, &1_000, &10);
     assert_eq!(
@@ -1034,6 +1056,7 @@ fn setup_purchase_scenario() -> (
             &AssetType::Dataset,
             &LicenseType::Perpetual,
             &10_000_000i128,
+            &soroban_sdk::Vec::new(&env),
         );
 
     let license = client.purchase_license(&buyer, &asset_id, &token_address);
@@ -1116,6 +1139,7 @@ fn test_open_auction_rejects_zero_duration() {
         &AssetType::Tool,
         &LicenseType::Perpetual,
         &1_000,
+        &soroban_sdk::Vec::new(&env),
     );
     let result = client.try_open_auction(&admin, &asset_id, &3, &1_000, &0);
     assert_eq!(
@@ -1138,6 +1162,7 @@ fn test_open_auction_rejects_non_owner() {
         &AssetType::Tool,
         &LicenseType::Perpetual,
         &1_000,
+        &soroban_sdk::Vec::new(&env),
     );
     let result = client.try_open_auction(&stranger, &asset_id, &3, &1_000, &10);
     assert_eq!(result.unwrap_err().unwrap(), MarketplaceError::NotOwner);
@@ -2134,6 +2159,367 @@ fn test_invalid_refund_bps_fails() {
         result.unwrap_err().unwrap(),
         MarketplaceError::InvalidRefundBps.into()
     );
+}
+
+fn setup_bond_test() -> (Env, Address, Address, Address, u64, u64, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let contract_id = env.register(MarketplaceContract, ());
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    let tags = vec![&env];
+    let asset_id = client.list_asset(
+        &seller,
+        &String::from_str(&env, "Test Asset"),
+        &String::from_str(&env, "Desc"),
+        &AssetType::Prompt,
+        &LicenseType::Perpetual,
+        &1000i128,
+        &tags,
+    );
+    client.post_bond(&seller, &asset_id, &5000i128);
+    let (token_addr, _token_client) = create_token(&env, &admin);
+    let license = client.purchase_license(&buyer, &asset_id, &token_addr);
+    let license_id = license.id;
+    (env, admin, seller, buyer, asset_id, license_id, contract_id)
+}
+
+// ── Bond & Multi-Round Dispute Game Tests ────────────────────────────────────
+
+#[test]
+fn test_post_and_withdraw_bond() {
+    let (env, _admin, seller, _buyer, asset_id, _license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let bond = client.get_bond(&asset_id).unwrap();
+    assert_eq!(bond.amount, 5000i128);
+
+    client.withdraw_bond(&seller, &asset_id, &2000i128);
+    let bond2 = client.get_bond(&asset_id).unwrap();
+    assert_eq!(bond2.amount, 3000i128);
+}
+
+#[test]
+fn test_seller_forfeit_by_silence() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    env.ledger().set_timestamp(200);
+
+    client.resolve(&dispute_id);
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.outcome, DisputeOutcome::BuyerWins);
+    assert!(dsp.resolved);
+}
+
+#[test]
+fn test_buyer_forfeit_by_non_reveal() {
+    let (env, _admin, seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[2u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    let resp_hash = BytesN::from_array(&env, &[3u8; 32]);
+    client.respond(&seller, &dispute_id, &resp_hash);
+
+    env.ledger().set_timestamp(300);
+
+    client.resolve(&dispute_id);
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.outcome, DisputeOutcome::SellerWins);
+}
+
+#[test]
+fn test_escalation_bond_doubling() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[4u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    client.escalate(&buyer, &dispute_id);
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.round, 2);
+    assert_eq!(dsp.buyer_bond, 2000i128);
+    assert_eq!(dsp.seller_bond, 2000i128);
+}
+
+#[test]
+fn test_slashing_arithmetic_round_1() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[5u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    env.ledger().set_timestamp(200);
+
+    let initial_treasury = client.get_treasury_balance();
+    client.resolve(&dispute_id);
+    let final_treasury = client.get_treasury_balance();
+
+    assert_eq!(final_treasury - initial_treasury, 500i128);
+}
+
+#[test]
+fn test_slashing_arithmetic_round_2() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[6u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    client.escalate(&buyer, &dispute_id);
+
+    env.ledger().set_timestamp(200);
+    let initial_treasury = client.get_treasury_balance();
+    client.resolve(&dispute_id);
+    let final_treasury = client.get_treasury_balance();
+
+    assert_eq!(final_treasury - initial_treasury, 1000i128);
+}
+
+#[test]
+fn test_frivolous_dispute_costing_buyer_more() {
+    let (env, _admin, seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let salt = BytesN::from_array(&env, &[10u8; 32]);
+    let evidence = Bytes::from_array(&env, &[1, 2, 3]);
+
+    let mut payload = Bytes::new(&env);
+    payload.append(&evidence);
+    payload.append(&Bytes::from(salt.clone()));
+    let claim_hash: BytesN<32> = env.crypto().sha256(&payload).into();
+
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+    client.respond(&seller, &dispute_id, &claim_hash);
+
+    client.reveal(&seller, &dispute_id, &evidence, &salt);
+
+    env.ledger().set_timestamp(300);
+    client.resolve(&dispute_id);
+
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.outcome, DisputeOutcome::SellerWins);
+    assert_eq!(dsp.buyer_bond, 1000i128);
+}
+
+#[test]
+fn test_bond_withdrawal_blocked_by_open_dispute() {
+    let (env, _admin, seller, buyer, asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[7u8; 32]);
+    let _dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    let res = client.try_withdraw_bond(&seller, &asset_id, &1000i128);
+    assert_eq!(res.unwrap_err().unwrap(), MarketplaceError::BondWithdrawalBlocked.into());
+}
+
+#[test]
+fn test_arbiter_registration_and_slashing() {
+    let (env, admin, _seller, _buyer, _asset_id, _license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let arb = Address::generate(&env);
+    client.register_staked_arbiter(&admin, &arb, &10000i128);
+
+    client.slash_arbiter(&admin, &arb, &3000i128);
+    assert_eq!(client.get_treasury_balance(), 3000i128);
+}
+
+#[test]
+fn test_commitment_mismatch_fails_reveal() {
+    let (env, _admin, seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[8u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    client.respond(&seller, &dispute_id, &claim_hash);
+
+    let wrong_salt = BytesN::from_array(&env, &[99u8; 32]);
+    let evidence = Bytes::from_array(&env, &[1, 2]);
+
+    let res = client.try_reveal(&seller, &dispute_id, &evidence, &wrong_salt);
+    assert_eq!(res.unwrap_err().unwrap(), MarketplaceError::CommitmentMismatch.into());
+}
+
+#[test]
+fn test_bond_withdrawal_blocked_by_cooldown() {
+    let (env, _admin, seller, buyer, asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[9u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    env.ledger().set_timestamp(50);
+    client.resolve(&dispute_id);
+
+    let res = client.try_withdraw_bond(&seller, &asset_id, &1000i128);
+    assert_eq!(res.unwrap_err().unwrap(), MarketplaceError::BondWithdrawalBlocked.into());
+}
+
+#[test]
+fn test_insufficient_bond_fails_dispute_open() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[11u8; 32]);
+    let res = client.try_open_dispute(&buyer, &license_id, &claim_hash, &10_000i128);
+    assert_eq!(res.unwrap_err().unwrap(), MarketplaceError::InsufficientBond.into());
+}
+
+#[test]
+fn test_multi_round_escalation_to_arbitration() {
+    let (env, admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let arb = Address::generate(&env);
+    client.register_staked_arbiter(&admin, &arb, &10000i128);
+
+    let claim_hash = BytesN::from_array(&env, &[12u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+
+    client.arbitrate(&arb, &dispute_id, &1u32);
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.outcome, DisputeOutcome::BuyerWins);
+    assert!(dsp.resolved);
+}
+
+#[test]
+fn test_arbitrate_buyer_wins() {
+    let (env, admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let arb = Address::generate(&env);
+    client.register_staked_arbiter(&admin, &arb, &10000i128);
+
+    let claim_hash = BytesN::from_array(&env, &[13u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+
+    client.arbitrate(&arb, &dispute_id, &1u32);
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.outcome, DisputeOutcome::BuyerWins);
+}
+
+#[test]
+fn test_arbitrate_seller_wins() {
+    let (env, admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let arb = Address::generate(&env);
+    client.register_staked_arbiter(&admin, &arb, &10000i128);
+
+    let claim_hash = BytesN::from_array(&env, &[14u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+
+    client.arbitrate(&arb, &dispute_id, &2u32);
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.outcome, DisputeOutcome::SellerWins);
+}
+
+#[test]
+fn test_arbitrate_non_arbiter_fails() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let non_arb = Address::generate(&env);
+    let claim_hash = BytesN::from_array(&env, &[15u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+    client.escalate(&buyer, &dispute_id);
+
+    let res = client.try_arbitrate(&non_arb, &dispute_id, &1u32);
+    assert_eq!(res.unwrap_err().unwrap(), MarketplaceError::ArbiterNotFound.into());
+}
+
+#[test]
+fn test_double_reveal_fails() {
+    let (env, _admin, seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let salt = BytesN::from_array(&env, &[16u8; 32]);
+    let evidence = Bytes::from_array(&env, &[10, 20]);
+
+    let mut payload = Bytes::new(&env);
+    payload.append(&evidence);
+    payload.append(&Bytes::from(salt.clone()));
+    let claim_hash: BytesN<32> = env.crypto().sha256(&payload).into();
+
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+    client.respond(&seller, &dispute_id, &claim_hash);
+
+    client.reveal(&buyer, &dispute_id, &evidence, &salt);
+    let res = client.try_reveal(&buyer, &dispute_id, &evidence, &salt);
+    assert_eq!(res.unwrap_err().unwrap(), MarketplaceError::AlreadyRevealed.into());
+}
+
+#[test]
+fn test_silence_loses_same_as_responding_loss() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[17u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    env.ledger().set_timestamp(200);
+    client.resolve(&dispute_id);
+
+    let dsp = client.get_multi_dispute(&dispute_id).unwrap();
+    assert_eq!(dsp.outcome, DisputeOutcome::BuyerWins);
+    assert_eq!(dsp.seller_bond, 1000i128);
+}
+
+#[test]
+fn test_treasury_accumulates_slashed_shares() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[18u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    env.ledger().set_timestamp(200);
+    client.resolve(&dispute_id);
+
+    assert_eq!(client.get_treasury_balance(), 500i128);
+}
+
+#[test]
+fn test_resolve_twice_fails() {
+    let (env, _admin, _seller, buyer, _asset_id, license_id, contract_id) = setup_bond_test();
+    let client = MarketplaceContractClient::new(&env, &contract_id);
+
+    let claim_hash = BytesN::from_array(&env, &[19u8; 32]);
+    let dispute_id = client.open_dispute(&buyer, &license_id, &claim_hash, &1000i128);
+
+    env.ledger().set_timestamp(200);
+    client.resolve(&dispute_id);
+
+    let res = client.try_resolve(&dispute_id);
+    assert_eq!(res.unwrap_err().unwrap(), MarketplaceError::DisputeAlreadyResolved.into());
 }
 
 include!("test_multisig.rs");
