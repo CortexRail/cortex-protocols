@@ -96,6 +96,7 @@ export class Verifier {
     await this.verifyContractExists("marketplace", this.addresses.contracts.marketplace.address);
     await this.verifyContractExists("micropayments", this.addresses.contracts.micropayments.address);
     await this.verifyContractExists("agent_registry", this.addresses.contracts.agent_registry.address);
+    await this.verifyContractExists("channels", this.addresses.contracts.channels.address);
 
     await this.verifyMarketplace();
     await this.verifyAgentRegistry();
@@ -357,6 +358,7 @@ export class Verifier {
         marketplace: this.addresses.contracts.marketplace.address,
         micropayments: this.addresses.contracts.micropayments.address,
         agent_registry: this.addresses.contracts.agent_registry.address,
+        channels: this.addresses.contracts.channels.address,
       },
       checks: this.checks,
       totalChecks: this.checks.length,

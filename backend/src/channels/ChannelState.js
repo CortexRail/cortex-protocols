@@ -2,13 +2,19 @@
  * ChannelState — the dual-signed, monotonically versioned balance pair a
  * bidirectional payment channel is built on.
  *
- * `{ channel_id, version, balance_a, balance_b, sig_a, sig_b }`. A state is
- * only meaningful with both signatures present and valid: neither party can
- * move funds unilaterally, and the on-chain contract (`dispute`) trusts a
- * state exactly because it cannot exist without both parties having signed
- * off on it. Comparing versions is what lets a later, correctly signed state
- * supersede an earlier one — the mechanism that makes publishing a stale
- * close strictly worse than closing honestly.
+ * `{ channel_id, version, balance_a, balance_b, revocation_commit_a,
+ * revocation_commit_b, sig_a, sig_b }`. A state is only meaningful with both
+ * signatures present and valid: neither party can move funds unilaterally,
+ * and the on-chain contract (`dispute`) trusts a state exactly because it
+ * cannot exist without both parties having signed off on it. Comparing
+ * versions is what lets a later, correctly signed state supersede an
+ * earlier one — the mechanism that makes publishing a stale close strictly
+ * worse than closing honestly.
+ *
+ * The two `revocation_commit_*` fields are each party's RevocationStore
+ * commitment hash for *this* version — signed alongside the balances so a
+ * `punish` claim can prove a revealed secret revokes this exact version
+ * using nothing but the state itself (see canonical.js's header for why).
  *
  * This module is deliberately narrow: it knows how to build, sign and verify
  * one state, and how to order two states of the same channel. It does not
@@ -59,20 +65,30 @@ function assertU64Integer(value, label) {
   }
 }
 
-function createState({ channelId, version, balanceA, balanceB }) {
+function createState({
+  channelId,
+  version,
+  balanceA,
+  balanceB,
+  revocationCommitA,
+  revocationCommitB,
+}) {
   assertU64Integer(channelId, "channelId");
   assertU64Integer(version, "version");
   assertU64Integer(balanceA, "balanceA");
   assertU64Integer(balanceB, "balanceB");
 
   // encodeStatePreimage (via signingMessage) additionally enforces u64
-  // upper bounds; calling it here makes any remaining malformed input fail
-  // at creation time rather than silently propagating into a signature.
+  // upper bounds and the 32-byte shape of the commitment fields; calling it
+  // here makes any remaining malformed input fail at creation time rather
+  // than silently propagating into a signature.
   const state = {
     channel_id: channelId,
     version,
     balance_a: balanceA,
     balance_b: balanceB,
+    revocation_commit_a: revocationCommitA,
+    revocation_commit_b: revocationCommitB,
     sig_a: null,
     sig_b: null,
   };

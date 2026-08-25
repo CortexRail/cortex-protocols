@@ -44,6 +44,7 @@ const CONTRACT_IDS = {
   marketplace: process.env.MARKETPLACE_CONTRACT_ID || "",
   micropayments: process.env.MICROPAYMENTS_CONTRACT_ID || "",
   agentRegistry: process.env.AGENT_REGISTRY_CONTRACT_ID || "",
+  channels: process.env.CHANNELS_CONTRACT_ID || "",
 };
 
 module.exports = {

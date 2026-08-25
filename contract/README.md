@@ -36,13 +36,14 @@
 
 ## Overview
 
-Cortex Protocol deploys three Soroban smart contracts to Stellar testnet:
+Cortex Protocol deploys these Soroban smart contracts to Stellar testnet:
 
 | Contract | Purpose |
 |----------|---------|
 | **Marketplace** | Lists, purchases, and manages intelligence assets |
 | **Micropayments** | Streaming payments (per-second / per-call billing) |
 | **Agent Registry** | On-chain identity and reputation for autonomous agents |
+| **Channels** | Bidirectional payment channels: unbounded off-chain updates, on-chain only to open/close/dispute |
 
 The deployment pipeline proceeds in four stages:
 
@@ -60,7 +61,8 @@ cortex-protocols/
 │   ├── contracts/
 │   │   ├── marketplace/       # Soroban marketplace contract (Rust)
 │   │   ├── micropayments/     # Payment streaming contract (Rust)
-│   │   └── agent_registry/    # Agent identity contract (Rust)
+│   │   ├── agent_registry/    # Agent identity contract (Rust)
+│   │   └── channels/          # Bidirectional payment channels (Rust)
 │   ├── scripts/
 │   │   ├── deploy.sh          # Deploy + re-deploy detection
 │   │   ├── init.sh            # Post-deploy initialisation
@@ -465,6 +467,45 @@ Marketplace events use the action and actor as topics. Version publication emits
 | `get_reputation(agent_id)` | Current reputation (0–10000 bp) | none |
 
 **Capabilities:** TextGeneration, CodeGeneration, Reasoning, VisionUnderstanding, AudioProcessing, DataAnalysis, WebResearch, ActionExecution
+
+---
+
+### Channels Contract
+
+Bidirectional payment channels: two parties exchange signed balance updates
+entirely off-chain (see `backend/src/channels/`), touching this contract only
+to open, to close cooperatively, or to adjudicate a dispute.
+
+| Function | Description | Auth |
+|----------|-------------|------|
+| `register_channel_key(party, public_key)` | Bind the Ed25519 key `party` signs off-chain states with | party |
+| `open_channel(a, b, token, deposit_a, deposit_b)` | Escrow both deposits → returns channel_id | a and b |
+| `close_cooperative(channel_id, state)` | Instant settlement from a dual-signed state, no window | none — the state's own signatures are the authorization |
+| `close_unilateral(closer, channel_id, state)` | Start the dispute window on a dual-signed state | closer |
+| `dispute(challenger, channel_id, later_state)` | Supersede the pending close with a strictly higher, validly signed version; does not extend the window | none |
+| `punish(challenger, channel_id, revocation_secret)` | Prove the pending state was revoked; pays the entire channel balance to `challenger` | none — the revealed secret is the proof |
+| `force_close(channel_id)` | Settle the pending state once the dispute window has elapsed | none |
+| `get_channel(channel_id)` | Read a channel's deposits and status | none |
+| `get_pending_close(channel_id)` | Read the state a unilateral close is currently resting on | none |
+| `state_commitment_hash(state)` | The hash a Watchtower blob for `state` is keyed on | none |
+
+**`ChannelState`:** `{ channel_id, version, balance_a, balance_b, revocation_commit_a, revocation_commit_b, sig_a, sig_b }` — see
+`contract/contracts/channels/src/state.rs` for the exact byte-for-byte wire
+format shared with `backend/src/channels/canonical.js`. The two
+`revocation_commit_*` fields are each party's RevocationStore commitment
+hash for that version, signed alongside the balances — this is what lets
+`punish` prove a bare revealed secret revokes an exact version without
+needing the state that superseded it.
+
+**Why `dispute` and `punish` are separate:** `dispute` needs the challenger to
+actually hold a later signed state, and corrects the outcome to what was
+honestly agreed — nothing more. `punish` needs only a revealed revocation
+secret and pays the *entire* channel balance as a deterrent; this is the
+path a Watchtower uses to act for an offline party without ever learning
+that party's balances.
+
+**Dispute window:** `DISPUTE_WINDOW_SECS` = 86,400 (24h), matching
+`CHALLENGE_WINDOW_SECS` in the micropayments contract.
 
 ---
 

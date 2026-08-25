@@ -51,11 +51,13 @@ load_addresses() {
   MARKETPLACE_ADDR=$(jq -r '.contracts.marketplace.address' "$ADDRESSES_FILE")
   MICROPAYMENTS_ADDR=$(jq -r '.contracts.micropayments.address' "$ADDRESSES_FILE")
   AGENT_REGISTRY_ADDR=$(jq -r '.contracts.agent_registry.address' "$ADDRESSES_FILE")
+  CHANNELS_ADDR=$(jq -r '.contracts.channels.address' "$ADDRESSES_FILE")
 
   log_info "Verifying contracts on $NETWORK"
   log_info "Marketplace:    $MARKETPLACE_ADDR"
   log_info "Micropayments:  $MICROPAYMENTS_ADDR"
   log_info "Agent Registry: $AGENT_REGISTRY_ADDR"
+  log_info "Channels:       $CHANNELS_ADDR"
 }
 
 # ── Query Helper ───────────────────────────────────────────────────────────────
@@ -283,10 +285,16 @@ main() {
   verify_contract_info "Marketplace"    "$MARKETPLACE_ADDR"
   verify_contract_info "Micropayments"  "$MICROPAYMENTS_ADDR"
   verify_contract_info "AgentRegistry"  "$AGENT_REGISTRY_ADDR"
+  verify_contract_info "Channels"       "$CHANNELS_ADDR"
 
   verify_marketplace
   verify_agent_registry
   verify_micropayments
+  # No verify_channels(): init.sh does not yet seed a channel fixture to
+  # assert against (open_channel needs a funded token + two registered
+  # keys, unlike the single-owner marketplace/agent_registry seeds it
+  # already does) — deployment existence is checked above, functional
+  # verification is a natural follow-up once init.sh grows that fixture.
   verify_xdr_decode
 
   print_report
