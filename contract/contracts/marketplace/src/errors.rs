@@ -41,26 +41,22 @@ pub enum MarketplaceError {
     SubscriptionNotActive = 34,
     ProrationError = 35,
     BidAlreadyRevealed = 36,
-    TokenMismatch = 37,
-    PolicyNotFound = 38,
-    InvalidThreshold = 39,
-    ProposalNotFound = 40,
-    NotASigner = 41,
-    SignerAlreadyApproved = 42,
-    ProposalNotPending = 43,
-    ProposalExpired = 44,
-    BondNotFound = 45,
-    InsufficientBond = 46,
-    BondWithdrawalBlocked = 47,
-    InvalidDisputeRound = 48,
-    DisputeNotActive = 49,
-    AlreadyRevealed = 50,
-    AlreadyResponded = 51,
-    ResponseWindowExpired = 52,
-    RevealWindowExpired = 53,
-    AlreadyEscalated = 54,
-    InvalidRuling = 55,
-    ArbiterNotFound = 56,
-    ArbiterAlreadyExists = 57,
-    DisputeNotFinalRound = 58,
+
+    /// Policy not found.
+    PolicyNotFound = 37,
+
+    /// Invalid threshold or required signers.
+    InvalidThreshold = 38,
+
+    /// Proposal not found.
+    ProposalNotFound = 39,
+
+    /// Base fee exceeds the buyer's maximum acceptable ceiling.
+    BaseFeeExceedsMax = 40,
+
+    /// Base fee update already performed for this window.
+    WindowAlreadyUpdated = 41,
+
+    /// Requested capacity exceeds window capacity limit.
+    CapacityExceeded = 42,
 }

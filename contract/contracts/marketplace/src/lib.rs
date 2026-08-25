@@ -381,7 +381,33 @@ pub struct Bid {
     pub token: Address,
     pub revealed_at: u32,
 }
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[soroban_sdk::contracttype]
+pub struct WindowFeeState {
+    pub window: u64,
+    pub base_fee: i128,
+    pub utilisation_bps: u32,
+    pub updated: bool,
+}
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[soroban_sdk::contracttype]
+pub struct CapacityReservation {
+    pub buyer: Address,
+    pub asset_id: u64,
+    pub calls: u32,
+    pub base_fee_paid: i128,
+    pub tip_paid: i128,
+    pub window: u64,
+}
+
+#[derive(Clone)]
+#[soroban_sdk::contracttype]
+pub enum MarketDataKey {
+    WindowFee(u64, u64), // (asset_id, window)
+    CurrentFee(u64),     // asset_id -> i128
+    Reservation(u64, Address, u64), // (asset_id, buyer, window)
+}
 fn history_key(asset_id: u64) -> (Symbol, u64) {
     (ASSET_HISTORY, asset_id)
 }
@@ -1866,6 +1892,112 @@ impl MarketplaceContract {
             return SubscriptionStatus::Active;
         }
         SubscriptionStatus::Expired
+    }pub fn update_base_fee(
+        env: Env,
+        asset_id: u64,
+        window: u64,
+        utilisation_bps: u32,
+    ) -> Result<i128, MarketplaceError> {
+        let window_key = MarketDataKey::WindowFee(asset_id, window);
+        if env.storage().persistent().has(&window_key) {
+            return Err(MarketplaceError::WindowAlreadyUpdated);
+        }
+
+        let current_fee_key = MarketDataKey::CurrentFee(asset_id);
+        let current_fee: i128 = env.storage().persistent().get(&current_fee_key).unwrap_or(100);
+
+        let target_bps: i128 = 5000;
+        let util: i128 = (utilisation_bps.min(10000)) as i128;
+        let smoothing: i128 = 8;
+        let max_change_bps: i128 = 1250;
+
+        let next_fee = if util == target_bps {
+            current_fee
+        } else if util > target_bps {
+            let delta_util = util - target_bps;
+            let mut delta_fee = (current_fee * delta_util) / (target_bps * smoothing);
+            if delta_fee == 0 {
+                delta_fee = 1;
+            }
+            let max_increase = (current_fee * max_change_bps) / 10000;
+            if delta_fee > max_increase && max_increase > 0 {
+                delta_fee = max_increase;
+            }
+            current_fee + delta_fee
+        } else {
+            let delta_util = target_bps - util;
+            let mut delta_fee = (current_fee * delta_util) / (target_bps * smoothing);
+            let max_decrease = (current_fee * max_change_bps) / 10000;
+            if delta_fee > max_decrease && max_decrease > 0 {
+                delta_fee = max_decrease;
+            }
+            if current_fee > delta_fee {
+                (current_fee - delta_fee).max(100)
+            } else {
+                100
+            }
+        };
+
+        let state = WindowFeeState {
+            window,
+            base_fee: next_fee,
+            utilisation_bps,
+            updated: true,
+        };
+
+        env.storage().persistent().set(&window_key, &state);
+        env.storage().persistent().set(&current_fee_key, &next_fee);
+
+        env.events().publish(
+            (Symbol::new(&env, "FEE_UPDATED"), asset_id),
+            (window, next_fee, utilisation_bps),
+        );
+
+        Ok(next_fee)
+    }
+
+    pub fn reserve_capacity(
+        env: Env,
+        buyer: Address,
+        asset_id: u64,
+        calls: u32,
+        max_base_fee: i128,
+        tip: i128,
+    ) -> Result<(), MarketplaceError> {
+        buyer.require_auth();
+
+        let current_fee_key = MarketDataKey::CurrentFee(asset_id);
+        let base_fee: i128 = env.storage().persistent().get(&current_fee_key).unwrap_or(100);
+
+        if base_fee > max_base_fee {
+            return Err(MarketplaceError::BaseFeeExceedsMax);
+        }
+
+        let total_base = base_fee
+            .checked_mul(calls as i128)
+            .ok_or(MarketplaceError::ArithmeticError)?;
+        let total_tip = tip
+            .checked_mul(calls as i128)
+            .ok_or(MarketplaceError::ArithmeticError)?;
+
+        let current_window = env.ledger().timestamp() / 60;
+        let res_key = MarketDataKey::Reservation(asset_id, buyer.clone(), current_window);
+        let reservation = CapacityReservation {
+            buyer: buyer.clone(),
+            asset_id,
+            calls,
+            base_fee_paid: total_base,
+            tip_paid: total_tip,
+            window: current_window,
+        };
+        env.storage().persistent().set(&res_key, &reservation);
+
+        env.events().publish(
+            (Symbol::new(&env, "CAP_RESERVED"), buyer),
+            (asset_id, calls, base_fee, tip),
+        );
+
+        Ok(())
     }
 
     // ── Bond Collateral & Multi-Round Dispute Game ────────────────────────────
