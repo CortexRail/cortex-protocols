@@ -9,7 +9,7 @@ use super::model::{EscrowStatus, State, StreamStatus, TokenId};
 /// Check that the escrow and stream locks in `state` are internally consistent
 /// and that no locked funds or balances are negative or corrupt.
 pub fn check_escrow_conservation(state: &State) {
-    let mut total_locked: i128 = 0;
+    let mut total_locked: u128 = 0;
 
     // 1. Verify stream locked amounts and consistency
     for (stream_id, stream) in &state.streams {
@@ -52,17 +52,12 @@ pub fn check_escrow_conservation(state: &State) {
         }
 
         total_locked = total_locked
-            .checked_add(stream.locked_amount)
-            .expect("Total locked stream funds overflowed");
+            .checked_add(stream.locked_amount as u128)
+            .expect("Total locked stream funds overflowed u128 (improbably large)");
     }
 
-    assert!(
-        total_locked >= 0,
-        "Total stream locked balance cannot be negative"
-    );
-
     // 2. Verify purchase escrow holds
-    let mut total_escrow_held: i128 = 0;
+    let mut total_escrow_held: u128 = 0;
     for (license_id, escrow) in &state.escrows {
         assert!(
             escrow.amount >= 0,
@@ -73,15 +68,10 @@ pub fn check_escrow_conservation(state: &State) {
 
         if escrow.status == EscrowStatus::Held {
             total_escrow_held = total_escrow_held
-                .checked_add(escrow.amount)
-                .expect("Total escrow hold amount overflowed");
+                .checked_add(escrow.amount as u128)
+                .expect("Total escrow hold amount overflowed u128");
         }
     }
-
-    assert!(
-        total_escrow_held >= 0,
-        "Total escrow hold balance cannot be negative"
-    );
 
     // 3. Verify user account balances are non-negative
     for ((account, token), balance) in &state.balances {
@@ -99,32 +89,32 @@ pub fn check_escrow_conservation(state: &State) {
 /// locked stream funds + held purchase escrows) is strictly conserved across
 /// a state transition from `before` to `after`.
 pub fn check_token_value_conservation(before: &State, after: &State, token: &TokenId) {
-    let sum_state_token_value = |s: &State| -> i128 {
-        let user_balances: i128 = s
+    let sum_state_token_value = |s: &State| -> u128 {
+        let user_balances: u128 = s
             .balances
             .iter()
             .filter(|((_, t), _)| t == token)
-            .map(|(_, b)| *b)
+            .map(|(_, b)| *b as u128)
             .sum();
 
-        let stream_locked: i128 = s
+        let stream_locked: u128 = s
             .streams
             .values()
             .filter(|st| &st.token == token)
-            .map(|st| st.locked_amount)
+            .map(|st| st.locked_amount as u128)
             .sum();
 
-        let escrow_held: i128 = s
+        let escrow_held: u128 = s
             .escrows
             .values()
             .filter(|e| &e.token == token && e.status == EscrowStatus::Held)
-            .map(|e| e.amount)
+            .map(|e| e.amount as u128)
             .sum();
 
         user_balances
             .checked_add(stream_locked)
             .and_then(|val| val.checked_add(escrow_held))
-            .expect("Token total value overflowed")
+            .expect("Token total value overflowed u128")
     };
 
     let total_before = sum_state_token_value(before);
