@@ -59,4 +59,20 @@ pub enum MarketplaceError {
 
     /// Requested capacity exceeds window capacity limit.
     CapacityExceeded = 42,
+
+    DisputeNotActive = 43,
+    ArbiterNotFound = 44,
+    InvalidRuling = 45,
+    TokenMismatch = 46,
+    DisputeNotFinalRound = 47,
+    ResponseWindowExpired = 48,
+    RevealWindowExpired = 49,
+    AlreadyRevealed = 50,
+    ProposalNotPending = 51,
+    NotASigner = 52,
+    SignerAlreadyApproved = 53,
+    BondNotFound = 54,
+    InsufficientBond = 55,
+    BondWithdrawalBlocked = 56,
+    UnknownError = 57,
 }

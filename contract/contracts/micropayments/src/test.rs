@@ -536,7 +536,7 @@ fn test_cancel_stream_mid_stream_splits_amounts() {
     let recipient = Address::generate(&env);
     let token = create_token_and_mint(&env, &sender, 100_000_000);
     
-    let token_client = token::StellarAssetClient::new(&env, &token);
+    let token_client = token::Client::new(&env, &token);
     let sender_balance_before = token_client.balance(&sender);
     let recipient_balance_before = token_client.balance(&recipient);
 

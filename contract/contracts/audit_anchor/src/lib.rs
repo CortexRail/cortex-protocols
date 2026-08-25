@@ -28,6 +28,7 @@ use soroban_sdk::{
 const ADMIN: Symbol = symbol_short!("ADMIN");
 /// Number of anchors stored (also the next free index).
 const ANCHOR_CNT: Symbol = symbol_short!("ANC_CNT");
+const STATE_ANCHOR_CNT: Symbol = symbol_short!("STANC_CNT");
 
 // ── Data types ────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,20 @@ fn anchor_key(index: u32) -> (Symbol, u32) {
     (symbol_short!("ANC"), index)
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StateAnchorRecord {
+    pub index: u32,
+    pub submitted_by: Address,
+    pub ledger_height: u64,
+    pub state_hash: BytesN<32>,
+    pub anchored_at: u64,
+}
+
+fn state_anchor_key(index: u32) -> (Symbol, u32) {
+    (symbol_short!("STANC"), index)
+}
+
 // ── Contract ──────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -71,6 +86,7 @@ impl AuditAnchorContract {
         );
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&ANCHOR_CNT, &0u32);
+        env.storage().instance().set(&STATE_ANCHOR_CNT, &0u32);
     }
 
     /// Replace the admin address. Current admin must authorise.
@@ -155,6 +171,50 @@ impl AuditAnchorContract {
         env.events().publish(
             (symbol_short!("ROOT_ANC"), admin),
             (index, root, entry_count),
+        );
+
+        record
+    }
+
+    pub fn anchor_state_root(
+        env: Env,
+        admin: Address,
+        ledger_height: u64,
+        state_hash: BytesN<32>,
+    ) -> StateAnchorRecord {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN)
+            .expect("contract not initialized");
+        assert!(stored_admin == admin, "caller is not the admin");
+
+        let index: u32 = env
+            .storage()
+            .instance()
+            .get(&STATE_ANCHOR_CNT)
+            .unwrap_or(0u32);
+
+        let record = StateAnchorRecord {
+            index,
+            submitted_by: admin.clone(),
+            ledger_height,
+            state_hash: state_hash.clone(),
+            anchored_at: env.ledger().timestamp(),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&state_anchor_key(index), &record);
+
+        let next_index = index + 1;
+        env.storage().instance().set(&STATE_ANCHOR_CNT, &next_index);
+
+        env.events().publish(
+            (symbol_short!("ST_ANC"), admin),
+            (index, state_hash, ledger_height),
         );
 
         record
