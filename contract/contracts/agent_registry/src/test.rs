@@ -150,6 +150,27 @@ fn test_owner_cannot_vote_own_agent() {
 }
 
 #[test]
+fn test_voter_cannot_vote_twice_on_same_agent() {
+    let (env, contract_id) = setup();
+    let owner = Address::generate(&env);
+    let voter = Address::generate(&env);
+    let client = AgentRegistryContractClient::new(&env, &contract_id);
+
+    client.register_agent(
+        &owner,
+        &String::from_str(&env, "SingleVoterAgent"),
+        &String::from_str(&env, "Test"),
+        &vec![&env, Capability::Reasoning],
+    );
+
+    client.vote_reputation(&voter, &1, &80);
+
+    let result = client.try_vote_reputation(&voter, &1, &0);
+    assert!(result.is_err(), "same voter should not be able to vote twice on the same agent");
+    assert_eq!(client.get_reputation(&1), 5_300);
+}
+
+#[test]
 fn test_score_over_100_rejected() {
     let (env, contract_id) = setup();
     let owner = Address::generate(&env);
