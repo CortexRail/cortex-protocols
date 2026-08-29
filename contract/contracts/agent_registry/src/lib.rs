@@ -268,6 +268,10 @@ impl AgentRegistryContract {
         let mut agent = agents.get(agent_id).unwrap();
         assert!(agent.owner != voter, "cannot vote on own agent");
 
+        let vote_key = (REP, voter.clone(), agent_id);
+        let already_voted: Option<ReputationVote> = env.storage().persistent().get(&vote_key);
+        assert!(already_voted.is_none(), "voter has already voted on this agent");
+
         // Fold elapsed decay into the stored score first, so a vote is applied
         // to what the score is worth *now* rather than to a stale snapshot.
         agent.reputation = settle_stored_reputation(&env, agent_id, agent.reputation);
@@ -286,7 +290,6 @@ impl AgentRegistryContract {
             voted_at: env.ledger().timestamp(),
         };
 
-        let vote_key = (REP, voter.clone(), agent_id);
         env.storage().persistent().set(&vote_key, &vote);
 
         env.events()
