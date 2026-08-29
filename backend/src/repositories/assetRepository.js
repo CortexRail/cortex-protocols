@@ -52,6 +52,7 @@ function mapAsset(row) {
     deletedAt: toMs(row.deleted_at),
     usdPriceCents: row.usd_price_cents,
     acceptedTokens: row.accepted_tokens || ["native"],
+    previewOutput: row.preview_output,
   };
 }
 
@@ -76,6 +77,7 @@ async function create(asset, client) {
     capacity = 0,
     usdPriceCents = null,
     acceptedTokens = ["native"],
+    previewOutput = null,
     createdAt,
   } = asset;
 
@@ -100,6 +102,7 @@ async function create(asset, client) {
        capacity        = EXCLUDED.capacity,
        usd_price_cents = EXCLUDED.usd_price_cents,
        accepted_tokens = EXCLUDED.accepted_tokens,
+       preview_output  = EXCLUDED.preview_output,
        indexed_at      = now(),
        updated_at      = now()
      RETURNING ${COLUMNS}`,
@@ -118,6 +121,7 @@ async function create(asset, client) {
       capacity,
       usdPriceCents,
       JSON.stringify(acceptedTokens),
+      previewOutput,
       msParam(createdAt),
       hasVersion,
     ],

@@ -17,6 +17,7 @@ interface Asset {
   isActive: boolean;
   flagged: boolean;
   tags: string[];
+  previewOutput?: string;
 }
 
 const REPORT_REASONS = [
@@ -236,6 +237,25 @@ export default function AssetDetailPage() {
           <h3 className="font-semibold mb-2">About</h3>
           <p className="text-zinc-300">{asset.description}</p>
         </div>
+
+        {/* Preview Output */}
+        {asset.previewOutput && (
+          <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-lg mb-8">
+            <details className="group">
+              <summary className="font-semibold cursor-pointer list-none flex items-center justify-between">
+                <span>Preview Output</span>
+                <span className="text-zinc-500 group-open:rotate-180 transition-transform">
+                  ▼
+                </span>
+              </summary>
+              <div className="mt-4 pt-4 border-t border-zinc-800">
+                <pre className="text-sm text-zinc-300 font-mono whitespace-pre-wrap">
+                  {asset.previewOutput}
+                </pre>
+              </div>
+            </details>
+          </div>
+        )}
 
         {/* Tags */}
         {asset.tags.length > 0 && (

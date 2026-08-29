@@ -116,6 +116,7 @@ pub struct IntelligenceAsset {
     pub created_at: u64,
     pub version: u32,
     pub tags: Vec<String>,
+    pub preview_output: Option<String>,
 }
 
 /// A retained description snapshot for a published asset version.
@@ -486,6 +487,7 @@ fn load_asset(env: &Env, asset_id: u64) -> Option<IntelligenceAsset> {
         created_at: legacy.created_at,
         version: 1,
         tags: Vec::new(env),
+        preview_output: None,
     };
 
     store_v2_asset(env, &asset);
@@ -696,6 +698,7 @@ impl MarketplaceContract {
         license: LicenseType,
         price: i128,
         tags: Vec<String>,
+        preview_output: Option<String>,
     ) -> Result<u64, MarketplaceError> {
         owner.require_auth();
 
@@ -713,6 +716,11 @@ impl MarketplaceContract {
         }
         for tag in tags.iter() {
             if tag.is_empty() || tag.len() > 30 {
+                return Err(MarketplaceError::InvalidMetadata);
+            }
+        }
+        if let Some(preview) = &preview_output {
+            if preview.len() > 500 {
                 return Err(MarketplaceError::InvalidMetadata);
             }
         }
@@ -736,6 +744,7 @@ impl MarketplaceContract {
             created_at: env.ledger().timestamp(),
             version: 1,
             tags,
+            preview_output,
         };
 
         store_v2_asset(&env, &asset);
