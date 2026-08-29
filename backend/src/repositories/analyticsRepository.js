@@ -37,47 +37,32 @@ async function getRevenueByOwner(owner, client) {
   }));
 }
 
-module.exports = { getRevenueByOwner, getAssetAnalytics };
-
 /**
- * Returns total revenue, purchase count, unique buyer count, and daily revenue over time
- * for a specific asset based on indexed purchase events (licenses).
+ * Revenue for one asset, broken down by license type. There is no separate
+ * "bundle"/tier concept in this system — a license's type (Perpetual,
+ * UsageBased, Subscription, OpenSource) is the only revenue segmentation
+ * that actually exists in the schema.
  */
-async function getAssetAnalytics(assetId, client) {
-  // Aggregate totals
-  const { rows: totals } = await run(
-    `SELECT 
-       COUNT(id)::int AS purchase_count,
-       COUNT(DISTINCT buyer)::int AS unique_buyer_count,
-       COALESCE(SUM(price_paid), 0)::bigint AS total_revenue
+async function getRevenueByAssetLicenseType(assetId, client) {
+  const { rows } = await run(
+    `SELECT
+       license_type                            AS license_type,
+       COUNT(*)::int                           AS license_count,
+       COALESCE(SUM(price_paid), 0)::bigint    AS revenue
      FROM licenses
-     WHERE asset_id = $1 AND is_active`,
+     WHERE asset_id = $1
+     GROUP BY license_type
+     ORDER BY revenue DESC`,
     [assetId],
     client,
     "read"
   );
 
-  // Daily buckets
-  const { rows: daily } = await run(
-    `SELECT 
-       DATE_TRUNC('day', purchased_at) AS day,
-       COALESCE(SUM(price_paid), 0)::bigint AS revenue
-     FROM licenses
-     WHERE asset_id = $1 AND is_active
-     GROUP BY day
-     ORDER BY day ASC`,
-    [assetId],
-    client,
-    "read"
-  );
-
-  return {
-    totalRevenue: Number(totals[0].total_revenue),
-    purchaseCount: Number(totals[0].purchase_count),
-    uniqueBuyerCount: Number(totals[0].unique_buyer_count),
-    revenueOverTime: daily.map(r => ({
-      date: r.day.toISOString().split('T')[0],
-      revenue: Number(r.revenue)
-    }))
-  };
+  return rows.map((row) => ({
+    licenseType: row.license_type,
+    licenseCount: row.license_count,
+    revenue: row.revenue,
+  }));
 }
+
+module.exports = { getRevenueByOwner, getRevenueByAssetLicenseType };

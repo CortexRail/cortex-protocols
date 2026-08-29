@@ -504,4 +504,144 @@ fn test_usage_stream_exceed_deposit() {
 
     // Accrue more than deposit
     client.increment(&sender, &stream_id, &11_000_000);
+}#[test]
+fn test_withdraw_after_stream_end_time_returns_remaining_deposit_only() {
+    let (env, contract_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = create_token_and_mint(&env, &sender, 100_000_000);
+
+    let client = MicropaymentsContractClient::new(&env, &contract_id);
+    client.open_stream(&sender, &recipient, &token, &10_000_000, &10_000, &1000);
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 5000,
+        protocol_version: 22,
+        sequence_number: 10,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 100_000,
+        max_entry_ttl: 6_312_000,
+    });
+
+    let withdrawn = client.withdraw(&recipient, &1);
+    assert_eq!(withdrawn, 10_000_000);
+}
+
+#[test]
+fn test_cancel_stream_mid_stream_splits_amounts() {
+    let (env, contract_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = create_token_and_mint(&env, &sender, 100_000_000);
+    
+    let token_client = token::Client::new(&env, &token);
+    let sender_balance_before = token_client.balance(&sender);
+    let recipient_balance_before = token_client.balance(&recipient);
+
+    let client = MicropaymentsContractClient::new(&env, &contract_id);
+    client.open_stream(&sender, &recipient, &token, &10_000_000, &10_000, &1000);
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 500,
+        protocol_version: 22,
+        sequence_number: 10,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 100_000,
+        max_entry_ttl: 6_312_000,
+    });
+
+    client.cancel_stream(&sender, &1);
+
+    assert_eq!(token_client.balance(&sender), sender_balance_before - 5_000_000);
+    assert_eq!(token_client.balance(&recipient), recipient_balance_before + 5_000_000);
+}
+
+#[test]
+fn test_withdraw_on_paused_stream_returns_0() {
+    let (env, contract_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = create_token_and_mint(&env, &sender, 100_000_000);
+
+    let client = MicropaymentsContractClient::new(&env, &contract_id);
+    client.open_stream(&sender, &recipient, &token, &10_000_000, &10_000, &1000);
+
+    client.pause_stream(&sender, &1);
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 500,
+        protocol_version: 22,
+        sequence_number: 10,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 100_000,
+        max_entry_ttl: 6_312_000,
+    });
+
+    let withdrawn = client.withdraw(&recipient, &1);
+    assert_eq!(withdrawn, 0);
+}
+
+#[test]
+#[should_panic(expected = "duration must be positive")]
+fn test_open_stream_duration_zero_fails() {
+    let (env, contract_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = create_token_and_mint(&env, &sender, 100_000_000);
+
+    let client = MicropaymentsContractClient::new(&env, &contract_id);
+    client.open_stream(&sender, &recipient, &token, &10_000_000, &10_000, &0);
+}
+
+#[test]
+fn test_stream_count_increments() {
+    let (env, contract_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = create_token_and_mint(&env, &sender, 100_000_000);
+
+    let client = MicropaymentsContractClient::new(&env, &contract_id);
+    assert_eq!(client.stream_count(), 0);
+    
+    client.open_stream(&sender, &recipient, &token, &10_000_000, &10_000, &1000);
+    assert_eq!(client.stream_count(), 1);
+
+    client.open_stream(&sender, &recipient, &token, &10_000_000, &10_000, &1000);
+    assert_eq!(client.stream_count(), 2);
+}
+
+#[test]
+#[should_panic(expected = "stream already closed")]
+fn test_sender_cannot_cancel_completed_stream() {
+    let (env, contract_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = create_token_and_mint(&env, &sender, 100_000_000);
+
+    let client = MicropaymentsContractClient::new(&env, &contract_id);
+    client.open_stream(&sender, &recipient, &token, &10_000_000, &10_000, &1000);
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 2000,
+        protocol_version: 22,
+        sequence_number: 10,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 100_000,
+        max_entry_ttl: 6_312_000,
+    });
+
+    client.withdraw(&recipient, &1);
+
+    let stream = client.get_stream(&1).unwrap();
+    assert_eq!(stream.status, StreamStatus::Completed);
+
+    client.cancel_stream(&sender, &1);
 }

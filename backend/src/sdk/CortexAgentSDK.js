@@ -3,6 +3,7 @@ const {
   TransactionBuilder,
   BASE_FEE,
   Address,
+  StrKey,
   nativeToScVal,
   rpc,
   scValToNative,
@@ -13,6 +14,8 @@ const AttestationBuilder = require("../attestation/AttestationBuilder");
 const AttestationVerifier = require("../attestation/AttestationVerifier");
 const MerkleBatchBuilder = require("../attestation/MerkleBatchBuilder");
 const { toFixedBuffer } = require("../attestation/canonical");
+const ChannelNegotiator = require("../channels/ChannelNegotiator");
+const RevocationStore = require("../channels/RevocationStore");
 
 class CortexAgentSDK {
   /**
@@ -25,10 +28,7 @@ class CortexAgentSDK {
    * @param {string} [config.tokenAddress] - Token asset address (default 'native' for XLM)
    * @param {Keypair} config.buyerKeypair - Buyer keypair for signing transactions
    * @param {Keypair} [config.sellerKeypair] - Seller keypair, required only for
-   *   the seller-side `attestCall`. A seller's G... address is an Ed25519
-   *   public key, so the key that receives payment is also the one that signs
-   *   attestations; pass a different keypair only if you have registered it
-   *   on-chain with register_attestation_key.
+   *   the seller-side `attestCall`.
    */
   constructor(config) {
     if (!config.backendUrl) {
@@ -44,20 +44,27 @@ class CortexAgentSDK {
     this.horizonUrl = config.horizonUrl || "https://horizon-testnet.stellar.org";
     this.networkPassphrase = config.networkPassphrase || "Test SDF Network ; September 2015";
     this.micropaymentsContractId = config.micropaymentsContractId;
-    this.tokenAddress = config.tokenAddress || "CDLZFC3SYJYDZT7K6AOFHG23NFR7EDLI226OJZ5U3XEE2FEUA7HJTZUA"; // default testnet native token or mock
+    this.channelsContractId = config.channelsContractId;
+    this.tokenAddress = config.tokenAddress || "CDLZFC3SYJYDZT7K6AOFHG23NFR7EDLI226OJZ5U3XEE2FEUA7HJTZUA";
 
-    // Lazy load server instances
     this.rpcServer = new SorobanRpc.Server(this.rpcUrl);
 
-    // Seller-side signing is optional: a buyer-only agent never needs a key it
-    // does not have, so the builder is only constructed when one is supplied.
     this.sellerKeypair = config.sellerKeypair || null;
     this._attestationBuilder = this.sellerKeypair
       ? new AttestationBuilder({ signer: this.sellerKeypair })
       : null;
 
-    // Verification is stateless and needs no key, so every agent gets one.
     this._attestationVerifier = new AttestationVerifier();
+
+    // channelId -> ChannelNegotiator. One RevocationStore is shared across
+    // every channel this agent is party to — RevocationStore already keys
+    // everything by channelId internally, so there is no cross-channel
+    // leakage in sharing it.
+    this._channelNegotiators = new Map();
+    this._channelRevocationStore = new RevocationStore();
+    // counterparty G-address -> channelId, so payForCallViaChannel can find
+    // an existing channel without the caller having to track ids itself.
+    this._channelByCounterparty = new Map();
   }
 
   /**
@@ -82,9 +89,19 @@ class CortexAgentSDK {
       const data = await res.json().catch(() => ({}));
       const err = new Error(data.error || `HTTP error ${res.status}`);
       err.status = res.status;
+      err.data = data;
       throw err;
     }
     return res.json();
+  }
+
+  /**
+   * Estimates base fee, suggested tip, and admission probability for an asset.
+   * @param {string|number} assetId
+   * @returns {Promise<{ baseFee: string, suggestedTip: string, admissionProbability: number }>}
+   */
+  async estimateCall(assetId) {
+    return this._request("GET", `/api/v1/assets/${assetId}/market/estimate`);
   }
 
   /**
@@ -117,7 +134,6 @@ class CortexAgentSDK {
   async openStream(assetId, depositXlm, durationHours) {
     const buyerPubkey = this.buyerKeypair.publicKey();
 
-    // 1. Handshake to initiate session and retrieve initial quote
     const handshake = await this._request("POST", "/api/v1/protocol/handshake", {
       publicKey: buyerPubkey,
       assetId: Number(assetId),
@@ -126,7 +142,6 @@ class CortexAgentSDK {
     const quote = handshake.quote;
     const initialPrice = handshake.price;
 
-    // 2. Propose a rate (negotiate rate). We propose the quote price
     const negotiation = await this._request("POST", "/api/v1/protocol/negotiate", {
       buyer: buyerPubkey,
       assetId: Number(assetId),
@@ -138,20 +153,15 @@ class CortexAgentSDK {
       throw new Error(`Rate negotiation failed: server replied with status ${negotiation.status}`);
     }
 
-    const agreedRate = negotiation.rate; // price per call in stroops
-
-    // Calculate duration and on-chain flow rate
+    const agreedRate = negotiation.rate;
     const durationSecs = durationHours * 3600;
     const depositStroops = Math.floor(depositXlm * 10_000_000);
     const ratePerSecond = Math.max(1, Math.floor(depositStroops / durationSecs));
 
     let streamId;
-
-    // Determine recipient/seller key
     const assetDetail = await this._request("GET", `/api/v1/assets/${assetId}`);
     const recipientPubkey = assetDetail.owner;
 
-    // 3. Open stream on-chain
     try {
       streamId = await this._openStreamOnChain(
         recipientPubkey,
@@ -161,11 +171,9 @@ class CortexAgentSDK {
       );
     } catch (err) {
       logger.warn("[CortexAgentSDK] On-chain stream opening failed, falling back to mock registration:", err.message);
-      // Fallback: Generate a random stream ID in mock/offline mode
       streamId = Math.floor(Math.random() * 1_000_000) + 1;
     }
 
-    // 4. Register opened stream with the server and retrieve stream token JWT
     const register = await this._request("POST", "/api/v1/protocol/stream/open", {
       streamId,
       agreedRate,
@@ -180,16 +188,12 @@ class CortexAgentSDK {
     };
   }
 
-  /**
-   * Internal helper to make Soroban RPC call to open stream on-chain.
-   */
   async _openStreamOnChain(recipient, deposit, ratePerSecond, durationSecs) {
     const contractId = this.micropaymentsContractId;
     if (!contractId) {
       throw new Error("micropaymentsContractId is not configured on SDK client");
     }
 
-    // Load account sequence
     const buyerAddr = this.buyerKeypair.publicKey();
     const res = await fetch(`${this.horizonUrl}/accounts/${buyerAddr}`);
     if (!res.ok) throw new Error("Horizon account load failed");
@@ -228,7 +232,6 @@ class CortexAgentSDK {
       throw new Error(`Tx send failed: ${submit.errorResult}`);
     }
 
-    // Poll status
     let status = await this.rpcServer.getTransaction(submit.hash);
     let retries = 0;
     while (status.status === "NOT_FOUND" && retries < 10) {
@@ -246,13 +249,23 @@ class CortexAgentSDK {
 
   /**
    * Make a metered API call using the stream token.
-   * Handles 402 Payment Required errors automatically.
+   * Enforces maxBaseFee protection without silently over-paying.
+   *
+   * @param {string} streamToken
+   * @param {object} payload
+   * @param {object} [options]
+   * @param {object|null} [options.attestation]
+   * @param {bigint|number|string|null} [options.maxBaseFee]
+   * @param {bigint|number|string|null} [options.tip]
    */
-  async call(streamToken, payload, { attestation = null } = {}) {
+  async call(streamToken, payload, { attestation = null, maxBaseFee = null, tip = null } = {}) {
     try {
-      // Metering refuses unattested calls, so the seller's attestation rides
-      // along with the meter request rather than being reported separately.
-      const body = attestation ? { ...payload, attestation } : payload;
+      const body = {
+        ...payload,
+        attestation,
+        maxBaseFee,
+        tip,
+      };
       return await this._request("POST", "/api/v1/protocol/meter", body, {
         Authorization: `Bearer ${streamToken}`,
       });
@@ -260,35 +273,23 @@ class CortexAgentSDK {
       if (err.status === 402) {
         throw new Error("Payment Required: Stream balance exhausted or expired (402)");
       }
+      if (err.status === 429) {
+        const customErr = new Error("Capacity exhausted for current window (429)");
+        customErr.status = 429;
+        customErr.currentBaseFee = err.data?.currentBaseFee;
+        customErr.nextWindowEstimate = err.data?.nextWindowEstimate;
+        customErr.suggestedTip = err.data?.suggestedTip;
+        throw customErr;
+      }
       throw err;
     }
   }
 
-  /**
-   * Retrieve the claimable balance of the stream.
-   */
   async getBalance(streamId) {
     const res = await this._request("GET", `/api/v1/protocol/stream/${streamId}/balance`);
     return res.claimable;
   }
 
-  // ── Attestation: seller side ───────────────────────────────────────────────
-
-  /**
-   * Sign an attestation for a call this agent just served.
-   *
-   * Attach the result to the API response and the buyer can prove, without
-   * trusting the backend or this SDK, that the call happened and that it was
-   * this seller who said so.
-   *
-   *   const result = await handleRequest(req);
-   *   return { ...result, attestation: sdk.attestCall(streamId, req, result) };
-   *
-   * The call index advances locally. After a restart, seed it from the last
-   * index the backend archived (`GET .../attestations/next-index`) via
-   * `seedAttestationIndex`, or the first attestation after the restart is
-   * rejected as non-monotonic.
-   */
   attestCall(streamId, request, response) {
     if (!this._attestationBuilder) {
       throw new Error("sellerKeypair is required to attest calls");
@@ -296,12 +297,6 @@ class CortexAgentSDK {
     return this._attestationBuilder.attest({ streamId, request, response });
   }
 
-  /**
-   * Wrap an existing response handler so every response carries an attestation.
-   *
-   * This is the drop-in path: the handler keeps its signature and its return
-   * shape, and gains an `attestation` field.
-   */
   attestHandler(handler, options) {
     if (!this._attestationBuilder) {
       throw new Error("sellerKeypair is required to attest calls");
@@ -309,7 +304,6 @@ class CortexAgentSDK {
     return this._attestationBuilder.wrap(handler, options);
   }
 
-  /** Restore the local call-index counter after a restart. */
   async seedAttestationIndex(streamId) {
     const res = await this._request(
       "GET",
@@ -319,31 +313,10 @@ class CortexAgentSDK {
     return res.lastCallIndex;
   }
 
-  // ── Attestation: buyer side ────────────────────────────────────────────────
-
-  /**
-   * Verify one attestation against the seller's public key.
-   *
-   * Entirely local: no network, no backend, no trust. `sellerPublicKey`
-   * defaults to whatever the attestation claims, which is only meaningful if
-   * you already know the seller's address — pass it explicitly to check that
-   * the attestation came from the party you are actually paying.
-   *
-   * @returns {{valid: boolean, reason: string, message: string|null,
-   *   provableOnChain: boolean}}
-   */
   verifyAttestation(attestation, sellerPublicKey) {
     return this._attestationVerifier.check(attestation, { signer: sellerPublicKey });
   }
 
-  /**
-   * Verify a whole archived batch against its on-chain commitment.
-   *
-   * Fetches the archived attestations, re-derives the Merkle root locally, and
-   * compares it to the root the backend claims was committed. A mismatch means
-   * the archive and the commitment disagree — whether because the seller lied
-   * or the backend tampered, the batch should not be trusted either way.
-   */
   async verifyBatch(streamId, batchId, sellerPublicKey) {
     const archived = await this._request(
       "GET",
@@ -360,10 +333,7 @@ class CortexAgentSDK {
     let recomputedRoot = null;
     try {
       recomputedRoot = MerkleBatchBuilder.build(archived.attestations).root;
-    } catch {
-      // A set that will not form a tree (a gap in the indices, say) is itself
-      // the finding; recomputedRoot stays null and rootMatches stays false.
-    }
+    } catch {}
 
     const commitmentValid = MerkleBatchBuilder.verifyBatchSignature(
       {
@@ -392,19 +362,6 @@ class CortexAgentSDK {
     };
   }
 
-  /**
-   * Challenge a specific call in a committed batch, on-chain.
-   *
-   * Fetches the archived proof, checks locally that it actually reproduces the
-   * committed root, and only then spends a transaction on it — a proof that
-   * cannot reach the root would be rejected by the contract anyway, and the
-   * buyer would have paid for the privilege.
-   *
-   * @param {number} streamId
-   * @param {number} batchId - the on-chain batch id
-   * @param {number} callIndex - the call being contested
-   * @returns {{txHash: string, voidedCalls: number}}
-   */
   async challengeBatch(streamId, batchId, callIndex) {
     const contractId = this.micropaymentsContractId;
     if (!contractId) {
@@ -478,13 +435,6 @@ class CortexAgentSDK {
     };
   }
 
-  /**
-   * Marshal an attestation into the contract's AttestationLeaf struct.
-   *
-   * Field names and types have to match the #[contracttype] exactly — Soroban
-   * maps a struct to a symbol-keyed map, so a misspelled key is a decode error
-   * rather than a silently ignored field.
-   */
   _attestationLeafToScVal(attestation) {
     return nativeToScVal(
       {
@@ -510,13 +460,308 @@ class CortexAgentSDK {
     );
   }
 
+  // ── Payment Channels ───────────────────────────────────────────────────
+
+  _requireChannelsContract() {
+    if (!this.channelsContractId) {
+      throw new Error("channelsContractId is not configured on SDK client");
+    }
+    return this.channelsContractId;
+  }
+
+  /** Sign with each keypair in order, submit, and poll for the result. */
+  async _submitTx(tx, signers) {
+    const prepared = await this.rpcServer.prepareTransaction(tx);
+    for (const kp of signers) prepared.sign(kp);
+
+    const submit = await this.rpcServer.sendTransaction(prepared);
+    if (submit.status === "ERROR") {
+      throw new Error(`Tx send failed: ${JSON.stringify(submit.errorResult)}`);
+    }
+
+    let status = await this.rpcServer.getTransaction(submit.hash);
+    let retries = 0;
+    while (status.status === "NOT_FOUND" && retries < 10) {
+      await new Promise((r) => setTimeout(r, 2000));
+      status = await this.rpcServer.getTransaction(submit.hash);
+      retries++;
+    }
+    if (status.status !== "SUCCESS") {
+      throw new Error(`Transaction failed with status: ${status.status}`);
+    }
+    return status.returnValue ? scValToNative(status.returnValue) : null;
+  }
+
+  _channelStateToScVal(state) {
+    return nativeToScVal(
+      {
+        channel_id: BigInt(state.channel_id),
+        version: BigInt(state.version),
+        balance_a: BigInt(state.balance_a),
+        balance_b: BigInt(state.balance_b),
+        revocation_commit_a: toFixedBuffer(state.revocation_commit_a, 32, "revocation_commit_a"),
+        revocation_commit_b: toFixedBuffer(state.revocation_commit_b, 32, "revocation_commit_b"),
+        sig_a: toFixedBuffer(state.sig_a, 64, "sig_a"),
+        sig_b: toFixedBuffer(state.sig_b, 64, "sig_b"),
+      },
+      {
+        type: {
+          channel_id: ["symbol", "u64"],
+          version: ["symbol", "u64"],
+          balance_a: ["symbol", "u64"],
+          balance_b: ["symbol", "u64"],
+          revocation_commit_a: ["symbol", "bytes"],
+          revocation_commit_b: ["symbol", "bytes"],
+          sig_a: ["symbol", "bytes"],
+          sig_b: ["symbol", "bytes"],
+        },
+      }
+    );
+  }
+
   /**
-   * Cancel stream on-chain (sender only) and reclaim remaining deposit.
+   * Register this agent's Ed25519 key for off-chain channel-state signing.
+   * Reuses the Stellar account keypair already held — Stellar keys are
+   * Ed25519 already, so there is nothing separate to generate or manage.
+   * Must be called once before this agent can be a party to any channel.
    */
+  async registerChannelKey() {
+    const contractId = this._requireChannelsContract();
+    const pubkey = this.buyerKeypair.publicKey();
+    const account = await this.rpcServer.getAccount(pubkey);
+
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
+      .addOperation(
+        new Contract(contractId).call(
+          "register_channel_key",
+          Address.fromString(pubkey).toScVal(),
+          nativeToScVal(StrKey.decodeEd25519PublicKey(pubkey), { type: "bytes" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    return this._submitTx(tx, [this.buyerKeypair]);
+  }
+
+  /**
+   * Open a channel with `counterpartyPubkey`. Both parties fund the
+   * channel in the same transaction (see the contract's `open_channel`),
+   * so both must authorize it. Pass `counterpartyKeypair` when this
+   * process controls both sides (tests, demos, one operator running both
+   * agents); otherwise this returns an unsigned-by-them XDR for the
+   * counterparty to co-sign and submit out-of-band.
+   *
+   * @param {string} counterpartyPubkey
+   * @param {number} myDepositXlm
+   * @param {number} counterpartyDepositXlm
+   * @param {object} [opts]
+   * @param {Keypair} [opts.counterpartyKeypair]
+   */
+  async openChannel(counterpartyPubkey, myDepositXlm, counterpartyDepositXlm, { counterpartyKeypair } = {}) {
+    const contractId = this._requireChannelsContract();
+    const myPubkey = this.buyerKeypair.publicKey();
+    const account = await this.rpcServer.getAccount(myPubkey);
+
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
+      .addOperation(
+        new Contract(contractId).call(
+          "open_channel",
+          Address.fromString(myPubkey).toScVal(),
+          Address.fromString(counterpartyPubkey).toScVal(),
+          Address.fromString(this.tokenAddress).toScVal(),
+          nativeToScVal(BigInt(Math.floor(myDepositXlm * 10_000_000)), { type: "i128" }),
+          nativeToScVal(BigInt(Math.floor(counterpartyDepositXlm * 10_000_000)), { type: "i128" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    if (!counterpartyKeypair) {
+      const prepared = await this.rpcServer.prepareTransaction(tx);
+      prepared.sign(this.buyerKeypair);
+      return { xdr: prepared.toXDR(), needsCounterpartySignature: true };
+    }
+
+    const channelId = Number(await this._submitTx(tx, [this.buyerKeypair, counterpartyKeypair]));
+    this.joinChannel(channelId, { party: "a", counterpartyPublicKey: counterpartyPubkey });
+    return { channelId };
+  }
+
+  /**
+   * Register a locally-tracked negotiator for a channel this agent is
+   * party to. The opener gets this for free from `openChannel`; the
+   * counterparty calls it explicitly on learning the new channel_id (from
+   * the OPENED event, or told directly by the opener).
+   */
+  joinChannel(channelId, { party, counterpartyPublicKey, initialState = null }) {
+    const negotiator = new ChannelNegotiator({
+      channelId,
+      party,
+      keypair: this.buyerKeypair,
+      counterpartyPublicKey,
+      revocationStore: this._channelRevocationStore,
+      initialState,
+    });
+    this._channelNegotiators.set(String(channelId), negotiator);
+    this._channelByCounterparty.set(counterpartyPublicKey, channelId);
+    return negotiator;
+  }
+
+  /**
+   * Route one call's payment through an existing open channel with
+   * `counterpartyPubkey` when this agent has joined one, instead of the
+   * ordinary stream-metered path. This is the client-side half of "route
+   * metering through a channel when one exists, falling back to the
+   * stream path when it does not": the decision has to be made here,
+   * locally, because a channel payment is a peer-to-peer balance update
+   * (payInChannel), not something the backend brokers the way stream
+   * metering is.
+   *
+   * @param {string} counterpartyPubkey
+   * @param {number} pricePerCall
+   * @returns {{viaChannel: false}|{viaChannel: true, channelId, proposal}}
+   *   `viaChannel: false` means no usable channel was found (never joined
+   *   one, or this agent's balance can't cover pricePerCall) — the caller
+   *   should fall back to openStream()/call() as usual. Otherwise
+   *   `proposal` is the message this agent must still send the
+   *   counterparty (who runs it through receiveChannelProposal) to
+   *   actually move the balance.
+   */
+  payForCallViaChannel(counterpartyPubkey, pricePerCall) {
+    const channelId = this._channelByCounterparty.get(counterpartyPubkey);
+    if (channelId === undefined) return { viaChannel: false };
+
+    const negotiator = this._negotiatorFor(channelId);
+    const state = negotiator.currentState;
+    if (!state) return { viaChannel: false };
+
+    const mine = negotiator.party === "a" ? Number(state.balance_a) : Number(state.balance_b);
+    const theirs = negotiator.party === "a" ? Number(state.balance_b) : Number(state.balance_a);
+    if (mine < pricePerCall) return { viaChannel: false };
+
+    const nextMine = mine - pricePerCall;
+    const nextTheirs = theirs + pricePerCall;
+    const [balanceA, balanceB] =
+      negotiator.party === "a" ? [nextMine, nextTheirs] : [nextTheirs, nextMine];
+
+    return { viaChannel: true, channelId, proposal: this.payInChannel(channelId, balanceA, balanceB) };
+  }
+
+  _negotiatorFor(channelId) {
+    const negotiator = this._channelNegotiators.get(String(channelId));
+    if (!negotiator) {
+      throw new Error(`no local channel negotiator for channel ${channelId}; call joinChannel first`);
+    }
+    return negotiator;
+  }
+
+  /**
+   * Propose the channel's next off-chain balances — the whole point of a
+   * channel: this touches no ledger. Returns the Proposal message to send
+   * to the counterparty over whatever transport they share.
+   */
+  payInChannel(channelId, balanceA, balanceB) {
+    const negotiator = this._negotiatorFor(channelId);
+    const nextVersion = negotiator.currentState ? Number(negotiator.currentState.version) + 1 : 1;
+    return negotiator.propose({ version: nextVersion, balanceA, balanceB });
+  }
+
+  /** Counterparty side: respond to a received Proposal with a CounterSignature. */
+  receiveChannelProposal(channelId, proposal) {
+    return this._negotiatorFor(channelId).counterSign(proposal);
+  }
+
+  /** Proposer side: accept a CounterSignature, producing an Ack. */
+  receiveChannelCounterSignature(channelId, counterSignature) {
+    return this._negotiatorFor(channelId).ack(counterSignature);
+  }
+
+  /** Counterparty side: accept an Ack, producing a Completion. */
+  receiveChannelAck(channelId, ack) {
+    return this._negotiatorFor(channelId).complete(ack);
+  }
+
+  /** Proposer side: accept a Completion, finishing the round. */
+  receiveChannelCompletion(channelId, completion) {
+    this._negotiatorFor(channelId).finalize(completion);
+  }
+
+  /** This agent's current fully-signed off-chain state for a channel, if any. */
+  getChannelState(channelId) {
+    return this._negotiatorFor(channelId).currentState;
+  }
+
+  /**
+   * Close a channel. Cooperative (the default) settles instantly at the
+   * current agreed state and needs no counterparty signature on this
+   * call — the state's own dual signature already carries their consent.
+   * Unilateral instead starts the dispute window, for when the
+   * counterparty cannot be reached to cooperatively close.
+   */
+  async closeChannel(channelId, { cooperative = true } = {}) {
+    const contractId = this._requireChannelsContract();
+    const state = this._negotiatorFor(channelId).currentState;
+    if (!state) {
+      throw new Error(`channel ${channelId} has no locally agreed state to close with`);
+    }
+
+    const myPubkey = this.buyerKeypair.publicKey();
+    const account = await this.rpcServer.getAccount(myPubkey);
+    const method = cooperative ? "close_cooperative" : "close_unilateral";
+    const args = cooperative
+      ? [nativeToScVal(BigInt(channelId), { type: "u64" }), this._channelStateToScVal(state)]
+      : [
+          Address.fromString(myPubkey).toScVal(),
+          nativeToScVal(BigInt(channelId), { type: "u64" }),
+          this._channelStateToScVal(state),
+        ];
+
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
+      .addOperation(new Contract(contractId).call(method, ...args))
+      .setTimeout(30)
+      .build();
+
+    return this._submitTx(tx, [this.buyerKeypair]);
+  }
+
+  /**
+   * Register this channel's most recently superseded state with a remote
+   * watchtower service (POSTs to `${endpoint}/register`), so it can submit
+   * `punish` on this agent's behalf if the counterparty ever republishes
+   * that state. Call this right after a payInChannel round completes
+   * (once this agent has revealed a secret) and before going offline —
+   * pass the `revokedState`/`revealedParty`/`revealedSecret` fields from
+   * whichever of `receiveChannelAck`/`receiveChannelCompletion` just ran.
+   */
+  async registerWatchtower(channelId, endpoint, { revokedState, revealedParty, revealedSecret } = {}) {
+    if (!revokedState || !revealedSecret) {
+      throw new Error(
+        "registerWatchtower needs the state that was just superseded plus the secret revealed " +
+          "for it — pass revokedState/revealedParty/revealedSecret from the round that just completed"
+      );
+    }
+
+    const res = await fetch(`${endpoint.replace(/\/$/, "")}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        channelId,
+        state: revokedState,
+        party: revealedParty,
+        revocationSecret: revealedSecret,
+        challenger: this.buyerKeypair.publicKey(),
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`watchtower registration failed: HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
   async closeStream(streamId) {
     const contractId = this.micropaymentsContractId;
     if (!contractId) {
-      // In mock/test environments, trigger settlement/cancellation off-chain
       return this._request("POST", `/api/v1/protocol/stream/${streamId}/cancel`);
     }
 

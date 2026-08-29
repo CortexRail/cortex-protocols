@@ -135,6 +135,47 @@ async function updateCallsRemaining(id, callsRemaining, client) {
 }
 
 /**
+ * Add calls and price atomically — used by a top-up, which increments both
+ * rather than setting either to an absolute value. Only affects active
+ * usage-based licenses; returns null (no row updated) otherwise, so the
+ * caller can distinguish "not found" from "not eligible".
+ */
+async function addCallsAndPrice(id, { addCalls, addPricePaid }, client) {
+  const { rows } = await run(
+    `UPDATE licenses
+     SET calls_remaining = calls_remaining + $2,
+         price_paid = price_paid + $3,
+         updated_at = now()
+     WHERE id = $1 AND is_active AND license_type = 'UsageBased'
+     RETURNING ${COLUMNS}`,
+    [id, addCalls, addPricePaid],
+    client
+  );
+  return mapLicense(rows[0]);
+}
+
+/**
+ * Aggregate remaining-call runway across every active usage-based license
+ * for an asset — the owner-facing summary a "remaining calls" badge shows.
+ */
+async function sumRemainingCallsForAsset(assetId, client) {
+  const { rows } = await run(
+    `SELECT
+       COUNT(*)::int                              AS active_license_count,
+       COALESCE(SUM(calls_remaining), 0)::bigint   AS total_remaining
+     FROM licenses
+     WHERE asset_id = $1 AND is_active AND license_type = 'UsageBased'`,
+    [assetId],
+    client,
+    "read"
+  );
+  return {
+    activeLicenseCount: rows[0].active_license_count,
+    totalRemaining: rows[0].total_remaining,
+  };
+}
+
+/**
  * Atomically consume one metered call.
  *
  * - unlimited licenses (calls_remaining IS NULL) pass through untouched
@@ -220,6 +261,8 @@ module.exports = {
   findByBuyerAndAsset,
   findAllByBuyer,
   updateCallsRemaining,
+  addCallsAndPrice,
+  sumRemainingCallsForAsset,
   consumeCall,
   expire,
   edgesInWindow,

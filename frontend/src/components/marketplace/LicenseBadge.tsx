@@ -1,8 +1,7 @@
 import { getLicenseColor } from "@/lib/formatters";
-import { LicenseType } from "@/lib/api/assets";
 
 interface LicenseBadgeProps {
-  type: LicenseType;
+  type: string;
 }
 
 export function LicenseBadge({ type }: LicenseBadgeProps) {

@@ -103,6 +103,7 @@ export interface ContractAddresses {
   marketplace: string;
   micropayments: string;
   agent_registry: string;
+  channels: string;
 }
 
 export interface DeployedAddresses {
@@ -112,6 +113,7 @@ export interface DeployedAddresses {
     marketplace: { address: string; name: string };
     micropayments: { address: string; name: string };
     agent_registry: { address: string; name: string };
+    channels: { address: string; name: string };
   };
 }
 

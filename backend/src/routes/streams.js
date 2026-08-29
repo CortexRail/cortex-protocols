@@ -14,8 +14,35 @@ const { isValidStellarAddress } = require("../utils/stellar");
 const router = Router();
 
 /**
- * GET /api/v1/streams
- * List payment streams, optionally filtering by sender or recipient.
+ * @swagger
+ * /api/v1/streams:
+ *   get:
+ *     summary: List payment streams, optionally filtering by sender or recipient.
+ *     tags: [Streams]
+ *     parameters:
+ *       - in: query
+ *         name: sender
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: recipient
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of streams
  */
 router.get(
   "/",
@@ -51,7 +78,20 @@ router.get(
 );
 
 /**
- * GET /api/v1/streams/:id
+ * @swagger
+ * /api/v1/streams/{id}:
+ *   get:
+ *     summary: Get a stream by id
+ *     tags: [Streams]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Stream details
  */
 router.get(
   "/:id",
@@ -67,8 +107,37 @@ router.get(
 );
 
 /**
- * POST /api/v1/streams
- * Index a stream after on-chain creation.
+ * @swagger
+ * /api/v1/streams:
+ *   post:
+ *     summary: Index a stream after on-chain creation.
+ *     tags: [Streams]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: integer
+ *               sender:
+ *                 type: string
+ *               recipient:
+ *                 type: string
+ *               token:
+ *                 type: string
+ *               deposit:
+ *                 type: integer
+ *               ratePerSecond:
+ *                 type: integer
+ *               startTime:
+ *                 type: integer
+ *               endTime:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Stream created
  */
 router.post(
   "/",
@@ -98,8 +167,31 @@ router.post(
 );
 
 /**
- * POST /api/v1/streams/:id/withdraw
- * Record a withdrawal from a payment stream.
+ * @swagger
+ * /api/v1/streams/{id}/withdraw:
+ *   post:
+ *     summary: Record a withdrawal from a payment stream.
+ *     tags: [Streams]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               recipient:
+ *                 type: string
+ *               amount:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Withdrawal recorded
  */
 router.post(
   "/:id/withdraw",

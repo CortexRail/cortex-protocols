@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, String, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, String, Vec};
 
 /// Price commitment for multi-asset settlement with slippage protection
 #[contracttype]
@@ -13,7 +13,7 @@ pub struct PriceCommitment {
     /// Valid until this ledger sequence
     pub valid_until_ledger: u32,
     /// Backend-provided signature for replay protection
-    pub signature: Vec<u8>,
+    pub signature: Bytes,
 }
 
 /// Asset with multi-token support
@@ -61,7 +61,7 @@ pub fn validate_token_accepted(
     accepted_tokens: &Vec<Address>,
 ) -> Result<(), PricingError> {
     for accepted in accepted_tokens.iter() {
-        if accepted == token {
+        if &accepted == token {
             return Ok(());
         }
     }

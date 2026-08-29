@@ -46,8 +46,10 @@ BACKEND_ENV="$CONTRACT_DIR/../backend/.env"
 FORCE_REDEPLOY="${FORCE_REDEPLOY:-false}"
 MAX_RETRIES=5
 
-# Deployment order matters: dependents come last.
-CONTRACTS=(agent_registry micropayments marketplace)
+# Deployment order matters: dependents come last. channels has no on-chain
+# dependencies (see contract/contracts/channels), so it is safe anywhere in
+# the list; appended rather than reordering the existing three.
+CONTRACTS=(agent_registry micropayments marketplace channels)
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 log_info()  { echo -e "${CYAN}[INFO]${RESET}  $*"; }
@@ -227,7 +229,7 @@ initialize_contracts() {
 # ── Artifacts ─────────────────────────────────────────────────────────────────
 
 write_addresses_json() {
-  local registry="$1" micropayments="$2" marketplace="$3"
+  local registry="$1" micropayments="$2" marketplace="$3" channels="$4"
   local timestamp
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -239,6 +241,7 @@ write_addresses_json() {
     --arg ar "$registry" \
     --arg mc "$micropayments" \
     --arg mp "$marketplace" \
+    --arg ch "$channels" \
     '{
       network: $network,
       networkPassphrase: $passphrase,
@@ -247,7 +250,8 @@ write_addresses_json() {
       contracts: {
         agent_registry: { address: $ar, name: "AgentRegistryContract" },
         micropayments:  { address: $mc, name: "MicropaymentsContract" },
-        marketplace:    { address: $mp, name: "MarketplaceContract" }
+        marketplace:    { address: $mp, name: "MarketplaceContract" },
+        channels:       { address: $ch, name: "ChannelsContract" }
       }
     }' > "$ADDRESSES_FILE"
 
@@ -255,7 +259,7 @@ write_addresses_json() {
 }
 
 sync_backend_env() {
-  local registry="$1" micropayments="$2" marketplace="$3"
+  local registry="$1" micropayments="$2" marketplace="$3" channels="$4"
 
   if [[ ! -f "$BACKEND_ENV" ]]; then
     if [[ -f "${BACKEND_ENV}.example" ]]; then
@@ -279,6 +283,7 @@ sync_backend_env() {
   _set_env_var "AGENT_REGISTRY_CONTRACT_ID" "$registry"
   _set_env_var "MICROPAYMENTS_CONTRACT_ID"  "$micropayments"
   _set_env_var "MARKETPLACE_CONTRACT_ID"    "$marketplace"
+  _set_env_var "CHANNELS_CONTRACT_ID"       "$channels"
   _set_env_var "SOROBAN_RPC_URL"            "$RPC_URL"
   _set_env_var "NETWORK_PASSPHRASE"         "$NETWORK_PASSPHRASE"
 
@@ -303,12 +308,14 @@ main() {
   log_ok "  micropayments   → $MICROPAYMENTS_ADDR"
   MARKETPLACE_ADDR=$(deploy_contract "marketplace")
   log_ok "  marketplace     → $MARKETPLACE_ADDR"
+  CHANNELS_ADDR=$(deploy_contract "channels")
+  log_ok "  channels        → $CHANNELS_ADDR"
 
   initialize_contracts "$MARKETPLACE_ADDR"
 
   log_step "Writing deployment artifacts"
-  write_addresses_json "$AGENT_REGISTRY_ADDR" "$MICROPAYMENTS_ADDR" "$MARKETPLACE_ADDR"
-  sync_backend_env     "$AGENT_REGISTRY_ADDR" "$MICROPAYMENTS_ADDR" "$MARKETPLACE_ADDR"
+  write_addresses_json "$AGENT_REGISTRY_ADDR" "$MICROPAYMENTS_ADDR" "$MARKETPLACE_ADDR" "$CHANNELS_ADDR"
+  sync_backend_env     "$AGENT_REGISTRY_ADDR" "$MICROPAYMENTS_ADDR" "$MARKETPLACE_ADDR" "$CHANNELS_ADDR"
 
   echo ""
   echo -e "${GREEN}${BOLD}✔ All contracts deployed${RESET}"

@@ -109,6 +109,12 @@ export class Deployer {
             (await this.deployContract("agent_registry")),
           name: "AgentRegistryContract",
         },
+        channels: {
+          address:
+            existing?.contracts.channels.address ||
+            (await this.deployContract("channels")),
+          name: "ChannelsContract",
+        },
       },
     };
 
@@ -358,6 +364,7 @@ export class Deployer {
       MARKETPLACE_CONTRACT_ID: addresses.contracts.marketplace.address,
       MICROPAYMENTS_CONTRACT_ID: addresses.contracts.micropayments.address,
       AGENT_REGISTRY_CONTRACT_ID: addresses.contracts.agent_registry.address,
+      CHANNELS_CONTRACT_ID: addresses.contracts.channels.address,
     };
 
     for (const [key, value] of Object.entries(updates)) {
