@@ -121,7 +121,6 @@ async function create(asset, client) {
       capacity,
       usdPriceCents,
       JSON.stringify(acceptedTokens),
-      previewOutput,
       msParam(createdAt),
       hasVersion,
     ],

@@ -36,13 +36,13 @@ app.use(
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+const appLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.APP_RATE_LIMIT_MAX ?? (process.env.NODE_ENV === "test" ? 200 : 3000)),
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use(limiter);
+app.use(appLimiter);
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "2mb" }));
