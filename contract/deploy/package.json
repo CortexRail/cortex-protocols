@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "node init && tsc",
     "deploy": "node --loader ts-node/esm src/index.ts deploy",
     "init": "node --loader ts-node/esm src/index.ts init",
     "verify": "node --loader ts-node/esm src/index.ts verify",
